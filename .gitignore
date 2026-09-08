@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+
+# Raw / intermediate EEG: never commit
+/data/raw/*
+!/data/raw/README.md
+/data/cache/*
+!/data/cache/.gitkeep
+
+# Generated analysis results are reproducible; keep them local by default.
+/results/*
+!/results/.gitkeep
+
+# Feature tables are intentionally NOT ignored: they are small enough to version.
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
