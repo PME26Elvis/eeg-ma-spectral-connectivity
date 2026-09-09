@@ -12,9 +12,10 @@ venv/
 /data/cache/*
 !/data/cache/.gitkeep
 
-# Generated analysis results are reproducible; keep them local by default.
-/results/*
-!/results/.gitkeep
+# Canonical analysis results and report figures are intentionally versioned.
+# Keep only explicitly temporary/scratch outputs ignored.
+/results/scratch/
+/results/tmp/
 
 # Feature tables are intentionally NOT ignored: they are small enough to version.
 
