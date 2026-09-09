@@ -1,0 +1,6 @@
+﻿subject_id,session_path,n_samples,sampling_rate_hz,inferred_sampling_rate_hz,sample_index_contiguous,all_values_finite,flat_channels,all_markers_sent,rest1_vs_type1_rest_epochs,rest1_vs_type1_ma_correct_epochs,rest1_vs_type1_count_pass,rest2_vs_type2_rest_epochs,rest2_vs_type2_ma_correct_epochs,rest2_vs_type2_count_pass,raw_abs_max,raw_std_min,protocol_counts_pass
+pftest,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260820_152055_pftest,495043,500.0,499.9999999976126,True,True,,True,30,30,True,30,30,True,0.4883550462268647,0.022622167987394325,True
+jh,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260820_172408_jh,503580,500.0,499.9999999976126,True,True,,True,30,30,True,30,30,True,0.5602496010916573,0.03151144602433333,True
+irene,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260821_141023_irene,466856,500.0,499.9999999976126,True,True,,True,30,30,True,30,30,True,0.4455134982154482,0.02930882029699335,True
+yen,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260821_161747_yen,487336,500.0,499.9999999976126,True,True,,True,30,30,True,30,30,True,0.6574903215680802,0.07753405349101807,True
+lin,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260824_163745_lin,495528,500.0,499.9999999976126,True,True,,True,30,30,True,30,30,True,0.6308215005057198,0.01736569584813417,True

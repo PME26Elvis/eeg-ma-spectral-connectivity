@@ -1,0 +1,31 @@
+﻿held_out_subject,comparison,outer_fold,classifier,accuracy,n_selected_features,selected_features,sfs_inner_accuracy,grid_inner_accuracy,best_params
+irene,rest1_vs_type1,1,LDA,0.5,1,BP__F4__beta_high,0.6375000000000001,,{}
+irene,rest1_vs_type1,1,RBF-SVM,0.5,1,BP__F4__beta_high,0.6375000000000001,0.6458333333333333,"{""clf__C"": 0.1, ""clf__gamma"": 0.23137744865585788}"
+irene,rest1_vs_type1,1,KFDA,0.5,1,BP__F4__beta_high,0.6375000000000001,0.6375,"{""clf__C"": 1.0, ""clf__gamma"": 1.0}"
+jh,rest1_vs_type1,2,LDA,0.55,3,BP__F8__theta;BP__F8__delta;BP__F8__alpha,0.6708333333333333,,{}
+jh,rest1_vs_type1,2,RBF-SVM,0.55,3,BP__F8__theta;BP__F8__delta;BP__F8__alpha,0.6708333333333333,0.5583333333333333,"{""clf__C"": 1000.0, ""clf__gamma"": 0.012386912896918909}"
+jh,rest1_vs_type1,2,KFDA,0.6166666666666667,3,BP__F8__theta;BP__F8__delta;BP__F8__alpha,0.6708333333333333,0.55,"{""clf__C"": 100.0, ""clf__gamma"": 0.007604489997873477}"
+lin,rest1_vs_type1,3,LDA,0.5,1,BP__F3__gamma,0.6375,,{}
+lin,rest1_vs_type1,3,RBF-SVM,0.5333333333333333,1,BP__F3__gamma,0.6375,0.6583333333333333,"{""clf__C"": 0.1, ""clf__gamma"": 7.039988712124658}"
+lin,rest1_vs_type1,3,KFDA,0.5166666666666667,1,BP__F3__gamma,0.6375,0.6875,"{""clf__C"": 0.1, ""clf__gamma"": 2.653297705144422}"
+pftest,rest1_vs_type1,4,LDA,0.5,1,BP__F8__delta,0.6,,{}
+pftest,rest1_vs_type1,4,RBF-SVM,0.5,1,BP__F8__delta,0.6,0.6041666666666667,"{""clf__C"": 100.0, ""clf__gamma"": 0.6139132535407591}"
+pftest,rest1_vs_type1,4,KFDA,0.5,1,BP__F8__delta,0.6,0.6041666666666666,"{""clf__C"": 1.0, ""clf__gamma"": 2.653297705144422}"
+yen,rest1_vs_type1,5,LDA,0.5,4,BP__F3__gamma;BP__F7__beta_high;BP__FP1__alpha;BP__F4__beta_low,0.6666666666666667,,{}
+yen,rest1_vs_type1,5,RBF-SVM,0.5,4,BP__F3__gamma;BP__F7__beta_high;BP__FP1__alpha;BP__F4__beta_low,0.6666666666666667,0.6333333333333333,"{""clf__C"": 1.0, ""clf__gamma"": 0.03286616756321879}"
+yen,rest1_vs_type1,5,KFDA,0.5,4,BP__F3__gamma;BP__F7__beta_high;BP__FP1__alpha;BP__F4__beta_low,0.6666666666666667,0.6499999999999999,"{""clf__C"": 1000.0, ""clf__gamma"": 0.02017697586015141}"
+irene,rest2_vs_type2,1,LDA,0.5,8,BP__Fz__alpha;BP__Fz__theta;BP__F7__theta;BP__Fz__beta_high;BP__F3__gamma;BP__FP1__theta;BP__F8__theta;BP__FP1__delta,0.7124999999999999,,{}
+irene,rest2_vs_type2,1,RBF-SVM,0.45,8,BP__Fz__alpha;BP__Fz__theta;BP__F7__theta;BP__Fz__beta_high;BP__F3__gamma;BP__FP1__theta;BP__F8__theta;BP__FP1__delta,0.7124999999999999,0.6458333333333334,"{""clf__C"": 100.0, ""clf__gamma"": 0.007604489997873477}"
+irene,rest2_vs_type2,1,KFDA,0.5,8,BP__Fz__alpha;BP__Fz__theta;BP__F7__theta;BP__Fz__beta_high;BP__F3__gamma;BP__FP1__theta;BP__F8__theta;BP__FP1__delta,0.7124999999999999,0.6291666666666667,"{""clf__C"": 1000.0, ""clf__gamma"": 0.02017697586015141}"
+jh,rest2_vs_type2,2,LDA,0.4666666666666667,1,BP__F7__alpha,0.6625,,{}
+jh,rest2_vs_type2,2,RBF-SVM,0.48333333333333334,1,BP__F7__alpha,0.6625,0.6583333333333333,"{""clf__C"": 1.0, ""clf__gamma"": 0.6139132535407591}"
+jh,rest2_vs_type2,2,KFDA,0.48333333333333334,1,BP__F7__alpha,0.6625,0.6625,"{""clf__C"": 10.0, ""clf__gamma"": 0.23137744865585788}"
+lin,rest2_vs_type2,3,LDA,0.5,3,BP__F7__theta;BP__F8__beta_low;BP__Fz__alpha,0.6000000000000001,,{}
+lin,rest2_vs_type2,3,RBF-SVM,0.5,3,BP__F7__theta;BP__F8__beta_low;BP__Fz__alpha,0.6000000000000001,0.5833333333333334,"{""clf__C"": 0.1, ""clf__gamma"": 2.653297705144422}"
+lin,rest2_vs_type2,3,KFDA,0.5333333333333333,3,BP__F7__theta;BP__F8__beta_low;BP__Fz__alpha,0.6000000000000001,0.6041666666666666,"{""clf__C"": 0.1, ""clf__gamma"": 1.0}"
+pftest,rest2_vs_type2,4,LDA,0.38333333333333336,4,BP__F7__alpha;BP__F3__gamma;BP__FP2__gamma;BP__F3__beta_high,0.7166666666666666,,{}
+pftest,rest2_vs_type2,4,RBF-SVM,0.4166666666666667,4,BP__F7__alpha;BP__F3__gamma;BP__FP2__gamma;BP__F3__beta_high,0.7166666666666666,0.6833333333333333,"{""clf__C"": 50.0, ""clf__gamma"": 0.08720372697238048}"
+pftest,rest2_vs_type2,4,KFDA,0.43333333333333335,4,BP__F7__alpha;BP__F3__gamma;BP__FP2__gamma;BP__F3__beta_high,0.7166666666666666,0.6916666666666667,"{""clf__C"": 1000.0, ""clf__gamma"": 0.23137744865585788}"
+yen,rest2_vs_type2,5,LDA,0.5,1,BP__F8__gamma,0.5916666666666667,,{}
+yen,rest2_vs_type2,5,RBF-SVM,0.5,1,BP__F8__gamma,0.5916666666666667,0.5333333333333334,"{""clf__C"": 0.1, ""clf__gamma"": 30.426425535513935}"
+yen,rest2_vs_type2,5,KFDA,0.5,1,BP__F8__gamma,0.5916666666666667,0.5541666666666667,"{""clf__C"": 0.1, ""clf__gamma"": 131.50125784630401}"
