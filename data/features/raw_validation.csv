@@ -1,0 +1,6 @@
+﻿subject_id,session_path,n_samples,sampling_rate_hz,inferred_sampling_rate_hz,sample_index_contiguous,all_values_finite,flat_channels,all_markers_sent
+pftest,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260820_152055_pftest,495043,500.0,499.9999999976126,True,True,,True
+jh,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260820_172408_jh,503580,500.0,499.9999999976126,True,True,,True
+irene,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260821_141023_irene,466856,500.0,499.9999999976126,True,True,,True
+yen,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260821_161747_yen,487336,500.0,499.9999999976126,True,True,,True
+lin,/workspaces/eeg-ma-spectral-connectivity/data/raw/20260824_163745_lin,495528,500.0,499.9999999976126,True,True,,True
