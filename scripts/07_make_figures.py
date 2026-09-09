@@ -43,20 +43,23 @@ def main() -> int:
         feature_summary = pd.read_csv(summary_path, encoding="utf-8-sig")
     else:
         feature_summary = collect_feature_set_summary(root, feature_sets=("all", "bp", "coh"))
-        if set(feature_summary.get("feature_set", [])) >= {"all", "bp", "coh"}:
-            feature_summary.to_csv(summary_path, index=False, encoding="utf-8-sig")
-        else:
-            print(
-                "[WARN] BP-only / COH-only result summaries are incomplete. "
-                "Run scripts/06_compare_feature_sets.py first for the full comparison figures."
-            )
+
+    available_sets = set(feature_summary["feature_set"].astype(str)) if not feature_summary.empty else set()
+    has_full_feature_sets = {"all", "bp", "coh"}.issubset(available_sets)
+    if has_full_feature_sets:
+        feature_summary.to_csv(summary_path, index=False, encoding="utf-8-sig")
+    else:
+        print(
+            "[WARN] BP-only / COH-only result summaries are incomplete. "
+            "Run scripts/06_compare_feature_sets.py first for the full comparison figures."
+        )
 
     made = []
     made += plot_all_feature_classification(intra_overall, inter_summary, out)
     made += plot_sfs_top_features(intra_freq, inter_freq, out, top_n=args.top_n)
     made += plot_connectivity_networks(inter_freq, out, top_n=args.top_n)
     made += plot_behavioral(behavior, out)
-    if not feature_summary.empty:
+    if has_full_feature_sets:
         made += plot_feature_set_comparison(feature_summary, out)
 
     print(f"Generated {len(made)} figure files:")
