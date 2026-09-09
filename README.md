@@ -1,10 +1,10 @@
 # eeg-ma-spectral-connectivity
 
-HNC Mental Arithmetic EEG 的可重現分析 repo。README 只描述資料格式、前處理、feature extraction、intra-subject / inter-subject 分析與輸出，不包含研究動機。
+HNC Mental Arithmetic EEG 的可重現分析 repo。README 只描述資料、前處理、feature extraction、分類驗證與視覺化流程，不包含研究動機。
 
 ## 分析範圍
 
-固定處理兩個主要二分類：
+固定處理兩個二分類：
 
 1. `Rest1 vs Type1`
 2. `Rest2 vs Type2`
@@ -15,30 +15,27 @@ HNC Mental Arithmetic EEG 的可重現分析 repo。README 只描述資料格式
 FP1, FP2, F7, F3, Fz, F4, F8
 ```
 
-`Cz` 保留於 raw EEG，但不進第一階段 168-feature pipeline。
+`Cz` 保留於 raw EEG，但不進 168-feature pipeline。
 
-完整流程：
+整體流程：
 
 ```text
 HNC v0.15 raw session
 → raw / protocol validation
 → continuous 2–50 Hz band-pass
 → 5-s epoching
-→ 42 Band Power + 126 Coherence = 168 features
-→ feature CSV（可進 Git）
+→ 42 BP + 126 COH = 168 features
 → SFS
 → LDA / RBF-SVM / KFDA
 → intra-subject 5-fold CV
 → inter-subject LOPO-CV
+→ BP-only / COH-only comparison
+→ classification / SFS / connectivity / behavioral figures
 ```
 
-專題計畫指定的前處理、5-s epochs、正確 MA trials、168 features、SFS、三種 classifier、5-fold 與 LOPO 都在此 pipeline 中保留。
+## 1. Git 與資料目錄
 
-## 1. Raw data 不進 Git
-
-`.gitignore` 已排除 `data/raw/*`。
-
-把五位受試者各自的完整 session folder 放進：
+Raw EEG **不進 Git**：
 
 ```text
 data/raw/
@@ -55,93 +52,82 @@ data/raw/
    └─ ...
 ```
 
-程式會遞迴尋找 `eeg_raw.csv`，資料夾名稱不需要符合固定格式。
+程式會遞迴尋找 `eeg_raw.csv`，資料夾名稱不需固定。
 
-本 repo 直接支援目前 v0.15 面板輸出欄位，包括：
+Git 策略：
 
-```text
-eeg_raw.csv
-sample_index, elapsed_s, FP1, FP2, F7, F3, Fz, F4, F8, Cz
-
-events.csv
-session_id, subject_id, stage, phase, task_type, attempt_index,
-utc_timestamp, elapsed_ms, marker_code, marker_sent, marker_message
-
-trials.csv
-session_id, subject_id, task_type, attempt_index, ...,
-response_correct, analysis_eligible, reaction_time_ms, calculation_onset, ...
-```
+- `data/raw/`：忽略
+- `data/features/`：版本控制
+- `results/`：正式 canonical results 與 figures 版本控制
+- `results/scratch/`、`results/tmp/`：忽略
 
 ## 2. 安裝
 
-建議 Python 3.10+。
+Python 3.10+：
 
-```powershell
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -e .
-```
-
-開發 / 測試：
-
-```powershell
 pip install -e ".[dev]"
 pytest
 ```
 
-## 3. 先驗證五份 raw data
+Windows PowerShell 啟用環境可改為：
 
 ```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+## 3. Raw validation
+
+```bash
 python scripts/01_validate_raw.py
 ```
 
-輸出：
+檢查：
+
+- sampling rate / `elapsed_s`
+- sample index continuity
+- 8 個 HNC raw channels
+- NaN / Inf / flat channel
+- Rest1 / Type1 / Rest2 / Type2 有效 epoch 數
+- `marker_sent`
+
+主要輸出：
 
 ```text
 results/raw_validation.csv
+data/features/raw_validation.csv
 ```
 
-會檢查：
+## 4. Preprocessing + Feature Extraction
 
-- 500 Hz 與 `elapsed_s` 是否一致
-- sample index 是否連續
-- 8 個 HNC raw channels 是否存在；Feature Extraction 再只取 7 個 frontal channels
-- NaN / Inf / flat channel
-- Rest1 / Type1 / Rest2 / Type2 是否各有預期 30 個有效 epochs
-- `marker_sent` 狀態
-
-## 4. Feature Extraction
-
-```powershell
+```bash
 python scripts/02_extract_features.py
 ```
 
-### Preprocessing
-
-預設 replication config：
+預設正式設定：
 
 ```text
 continuous raw EEG
 → 4th-order Butterworth 2–50 Hz
 → zero-phase sosfiltfilt
-→ 以正式 SessionStart marker 校正 raw time-zero，再依 events.elapsed_ms 切 5-s epochs
+→ 依 SessionStart / event elapsed time 切 5-s epochs
 ```
 
-Rest：
+Rest：marker `20 / 24`。
 
-- Rest1 marker `20`
-- Rest2 marker `24`
+Mental Arithmetic：marker `11 / 12`，只使用：
 
-Mental Arithmetic：
-
-- Type1 calculation onset marker `11`
-- Type2 calculation onset marker `12`
-- 只保留 `analysis_eligible=true` 且 `response_correct=true`
+```text
+analysis_eligible = true
+response_correct = true
+```
 
 ### Band Power
 
-教材定義：
+依實驗室教材：
 
 ```text
 X[k] = DFT{x[n]}
@@ -149,11 +135,11 @@ PSD[f_k] = |X[k]|²
 BP_band = Σ PSD[f_k]
 ```
 
-5 秒 epoch、500 Hz：
+5 s × 500 Hz：
 
 ```text
 N = 2500
-Fr = Fs/N = 0.2 Hz
+Fr = Fs / N = 0.2 Hz
 ```
 
 六頻帶：
@@ -167,27 +153,39 @@ Fr = Fs/N = 0.2 Hz
 γ      30–45 Hz
 ```
 
-7 × 6 = **42 BP features**。
+7 channels × 6 bands = **42 BP features**。
 
 ### Coherence
 
-7 channels 共 `C(7,2)=21` pairs；每 pair 六頻帶：
-
-21 × 6 = **126 COH features**。
-
-依補充的實驗室教材，COH 採 segmented-FFT magnitude-squared coherence，而不是直接呼叫 SciPy Welch coherence：
+依實驗室教材採 segmented-FFT magnitude-squared coherence：
 
 ```text
-一個 5-s trial → 切成 M 個 subsegments
-每段：Gxx=|X|², Gyy=|Y|², Gxy=X·Y*
+5-s trial → M 個 subsegments
+Gxx = |X|²
+Gyy = |Y|²
+Gxy = X·Y*
 先跨 subsegments 平均 Gxx / Gyy / Gxy
-Coh(f)=|mean(Gxy)|² / (mean(Gxx)·mean(Gyy))
-最後對指定 band 內的 Coh(f) 取平均
+Coh(f) = |mean(Gxy)|² / (mean(Gxx)·mean(Gyy))
+最後在各 band 內取平均
 ```
 
-教材沒有指定 subsegment 秒數；正式 config 明示採 **1.0 s、non-overlapping、raw FFT（無額外 Hann window）**，因此每個 5-s trial 有 5 個 subsegments。這個秒數是可設定的實作參數，不冒充成教材已指定的值。 在這個正式設定下，COH 頻率格點為 **1 Hz**；Band Power 仍使用完整 5-s epoch，因此 BP 的頻率解析度仍是 **0.2 Hz**。
+教材未指定 subsegment 長度；正式 config 明示採：
 
-### Total
+```text
+1.0 s
+non-overlapping
+raw FFT / rectangular window
+```
+
+因此 5-s epoch → 5 segments；COH frequency grid = 1 Hz。
+
+7 channels 共 `C(7,2)=21` pairs：
+
+```text
+21 × 6 = 126 COH features
+```
+
+總計：
 
 ```text
 42 + 126 = 168 features / epoch
@@ -201,21 +199,15 @@ data/features/features_all.csv
 data/features/raw_validation.csv
 ```
 
-`data/features/` **沒有被 `.gitignore` 排除**，所以 feature CSV 可以版本控制。
+Feature CSV 保存**未 z-score**數值；normalization 只在各 CV training fold 內 fit，避免 leakage。
 
-## 5. 為什麼 feature CSV 不先 z-score
+## 5. Intra-subject
 
-計畫要求 normalization、feature selection、model tuning 都只能由 training fold 估計。
-
-因此 feature CSV 保存未標準化 BP / COH；`StandardScaler` 在每個 CV training fold 內 fit，再套用 validation / test。這樣不會把 held-out data 的 mean/std 洩漏進 training。
-
-## 6. Intra-subject
-
-```powershell
+```bash
 python scripts/03_intra_subject.py
 ```
 
-每位 participant、每個 comparison 分開做：
+每位 participant、每個 comparison 分開：
 
 ```text
 outer Stratified 5-fold CV
@@ -227,7 +219,7 @@ outer Stratified 5-fold CV
 → outer held-out fold accuracy
 ```
 
-輸出：
+主要輸出：
 
 ```text
 results/intra/intra_folds.csv
@@ -238,9 +230,9 @@ results/intra/intra_sfs_path.csv
 results/intra/intra_feature_frequency.csv
 ```
 
-## 7. Inter-subject
+## 6. Inter-subject
 
-```powershell
+```bash
 python scripts/04_inter_subject.py
 ```
 
@@ -251,9 +243,9 @@ held-out participant = test
 其餘 participants = training
 ```
 
-training participants 裡的 SFS 與 SVM/KFDA tuning 也使用 `LeaveOneGroupOut`，避免同一受試者的 epochs 同時出現在 inner train / validation。
+training participants 內的 SFS 與 SVM/KFDA tuning 也使用 `LeaveOneGroupOut`，避免 subject leakage。
 
-輸出：
+主要輸出：
 
 ```text
 results/inter/inter_folds.csv
@@ -263,42 +255,9 @@ results/inter/inter_sfs_path.csv
 results/inter/inter_feature_frequency.csv
 ```
 
-## 8. SFS
+## 7. Behavioral summary
 
-分析順序固定為：
-
-```text
-SFS → LDA / RBF-SVM / KFDA
-```
-
-SFS 使用 training-only LDA inner-CV accuracy 做 greedy forward selection。加入最佳候選 feature 若不再提高 inner-CV accuracy 即停止，得到該 outer fold 的 selected subset。
-
-這個「LDA 作為共同 SFS criterion」是目前資料來源下的明確實作選擇：海報將流程寫成 `SFS → LDA / Non-linear SVM / KFDA`，且 Figure 4 明確描述 inter-subject LDA 的 SFS 結果，但沒有提供 SVM/KFDA 各自重新跑 SFS 的規則。因此正式版先用同一個 training-only subset 公平比較三種 classifier；若之後取得實驗室舊程式，可只替換 SFS evaluator，不必重做 feature extraction。
-
-因此每個 outer fold 都會重新做 SFS，不會在全資料先選一次 features。
-
-## 9. SVM / KFDA grid search
-
-海報中的 RBF grid：
-
-```text
-C = [0.1, 1, 10, 50, 100, 1000]
-gamma = {1.05^-100, 1.05^-90, ..., 1.05^90, 1.05^100}
-```
-
-設定位於：
-
-```text
-configs/lab_replication.json
-```
-
-RBF-SVM 使用 `SVC(kernel="rbf")`。
-
-KFDA 為 repo 內的 binary regularized Kernel Fisher Discriminant：RBF kernel 使用同一 gamma，並定義 `lambda = 1/C` 來對應海報的 C grid。
-
-## 10. Behavioral summary
-
-```powershell
+```bash
 python scripts/05_behavioral.py
 ```
 
@@ -308,52 +267,161 @@ python scripts/05_behavioral.py
 results/behavioral_summary.csv
 ```
 
-包含：
+包含 Type1 / Type2：
 
-- Type1 / Type2 accuracy
+- accuracy
 - error rate
-- correct-trial reaction time mean / median
+- correct-trial RT mean / median
 - attempts required to reach 30 correct
 
-## 11. 一次跑完整流程
+## 8. SFS 與 classifier 設定
 
-```powershell
-python scripts/run_all.py
+分析順序固定：
+
+```text
+SFS → LDA / RBF-SVM / KFDA
 ```
 
-先建議單獨跑 `01_validate_raw.py` 與 `02_extract_features.py`；確認五位資料與 168 features 都正常，再跑模型分析。
+SFS 使用 training-only LDA inner-CV accuracy 做 greedy forward selection；加入最佳候選 feature 若不再提高 inner-CV accuracy 即停止。三種 classifier 共用該 outer fold 的 selected subset。
 
-> 正式 `lab_replication.json` 使用海報完整 RBF grid，並在每個 outer training fold 內做 SFS / tuning，因此運算量會明顯大於 smoke test。第一次在新環境請先用 `configs/smoke_test.json` 驗證程式鏈，再跑正式設定。
+RBF grid 依實驗室海報：
 
-## 12. 正式版與 smoke config
+```text
+C = [0.1, 1, 10, 50, 100, 1000]
+gamma = {1.05^-100, 1.05^-90, ..., 1.05^90, 1.05^100}
+```
 
-正式方法：
+RBF-SVM 直接使用 `C / gamma`；KFDA 使用相同 RBF gamma，並明示定義 `lambda = 1/C`。
+
+正式設定：
 
 ```text
 configs/lab_replication.json
 ```
 
-快速驗證程式可跑：
+快速 smoke test：
 
 ```text
 configs/smoke_test.json
 ```
 
-`smoke_test.json` 只縮小 SFS / RBF grid 以節省時間，不應拿來當正式結果。
+smoke config 只用來驗證程式鏈，不可當正式結果。
 
-## 13. 可重現性與 Git 管理
+## 9. BP-only / COH-only comparison
 
-- `data/raw/`：由 `.gitignore` 排除，不進 Git。
-- `data/features/`：刻意不排除，可提交 BP / COH feature tables。
-- `results/`：預設排除，避免每次 CV 重跑造成大量 diff；正式要保存特定結果時可另外建立 release/tag 或移出 ignore。
-- `.github/workflows/tests.yml`：GitHub Actions 會在 Python 3.10 / 3.12 執行單元與 synthetic end-to-end tests。
-- `pytest` 包含頻率解析度、教材 DFT-squared BP、COH、168 維、KFDA、SFS、v0.15 event/epoch 對齊與 intra/inter smoke tests。
+既有 `features_all.csv` 已含完整 BP / COH，因此**不用重新抽 raw feature**。
 
-## 14. 目前刻意沒有做的處理
+執行：
 
-- ICA：不在目前 v0.15 計畫的 replication pipeline 中
+```bash
+python scripts/06_compare_feature_sets.py
+```
+
+此腳本沿用完全相同的 CV / SFS / classifier / grid search，只分別把候選 feature 限制成：
+
+```text
+BP only  = 42
+COH only = 126
+BP+COH   = 168（既有 canonical results）
+```
+
+新增：
+
+```text
+results/feature_sets/bp/
+results/feature_sets/coh/
+results/feature_set_comparison.csv
+```
+
+每個 BP/COH result root 都保存 `config_snapshot.json`。
+
+## 10. 視覺化 / 圖表
+
+BP-only / COH-only 跑完後：
+
+```bash
+python scripts/07_make_figures.py
+```
+
+或調整顯示的 top features：
+
+```bash
+python scripts/07_make_figures.py --top-n 8
+```
+
+輸出到：
+
+```text
+results/figures/
+```
+
+每張圖同時產生 PNG 與 SVG。
+
+包含：
+
+### Classification
+
+```text
+classification_all_intra.*
+classification_all_inter.*
+feature_sets_intra_rest1_vs_type1.*
+feature_sets_intra_rest2_vs_type2.*
+feature_sets_inter_rest1_vs_type1.*
+feature_sets_inter_rest2_vs_type2.*
+```
+
+### SFS top features
+
+```text
+sfs_top_intra_rest1_vs_type1.*
+sfs_top_intra_rest2_vs_type2.*
+sfs_top_inter_rest1_vs_type1.*
+sfs_top_inter_rest2_vs_type2.*
+```
+
+### Connectivity scalp/network
+
+```text
+connectivity_inter_rest1_vs_type1.*
+connectivity_inter_rest2_vs_type2.*
+```
+
+使用 7 frontal channel 的固定 schematic 10-20 位置：
+
+- node = electrode
+- edge = SFS 選到的 COH pair
+- edge width = outer LOPO selection count
+- edge label = band × selection count
+
+這是 **connectivity network schematic**，不是將 scalp voltage 插值的傳統 topomap；對 pair-wise COH feature 的呈現更直接。
+
+### Behavioral
+
+```text
+behavioral_accuracy.*
+behavioral_rt_median.*
+```
+
+RT 圖優先使用 correct-trial median，避免 unlimited answer 中少數極長 RT 把圖拉歪。
+
+完整說明見 [`docs/visualization_and_feature_sets.md`](docs/visualization_and_feature_sets.md)。
+
+## 11. 一次跑原始核心流程
+
+```bash
+python scripts/run_all.py
+```
+
+第一次新環境仍建議按 `01 → 02 → 03/04/05` 分開跑，先確認 raw 與 168 features 正常。
+
+`06` 的 BP-only / COH-only 會重新做完整 SFS + grid search，因此運算量較大；不應因分類率不佳而事後反覆改 preprocessing / CV 設定。
+
+## 12. 目前刻意不做
+
+- ICA：不在目前 replication pipeline
 - Cz feature：第一階段不納入
 - 全資料先 z-score：禁止，避免 leakage
 - raw data commit：禁止
+- 為了提高 accuracy 事後調整 band / CV 定義：不做
 
-更細的公式、來源中有明定與沒有明定的實作邊界，見 [`docs/method_definition.md`](docs/method_definition.md)。
+更細的公式與來源中「有明定 / 未明定」的邊界見 [`docs/method_definition.md`](docs/method_definition.md)。
