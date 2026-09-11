@@ -1,0 +1,33 @@
+{
+  "baseline_config_path": "configs/lab_replication.json",
+  "experiment_matrix_path": "configs/plv_decomposition.json",
+  "poster_results_root": "results",
+  "e2_full_results_root": "results/extensions/e2_plv",
+  "selected_experiments": [
+    {
+      "name": "e2a_plv_only",
+      "feature_set": "plv",
+      "description": "126 PLV features only; tests whether phase synchrony alone carries the Type1 cross-subject signal"
+    },
+    {
+      "name": "e2b_bp_plv",
+      "feature_set": "bp_plv",
+      "description": "42 BP + 126 PLV = 168 features; tests whether absolute band power complements PLV without coherence"
+    },
+    {
+      "name": "e2c_coh_plv",
+      "feature_set": "coh_plv",
+      "description": "126 COH + 126 PLV = 252 features; tests whether magnitude-squared coherence complements PLV"
+    },
+    {
+      "name": "e3_all_extensions",
+      "feature_set": "baseline_asym_plv",
+      "description": "42 BP + 126 COH + 18 asymmetry + 126 PLV = 312 features; tests whether SFS retains any E1 information once PLV is present"
+    },
+    {
+      "name": "e2d_asym_plv",
+      "feature_set": "asym_plv",
+      "description": "18 hemispheric asymmetry + 126 PLV = 144 features; exploratory relative-power plus phase representation without absolute BP/COH"
+    }
+  ]
+}

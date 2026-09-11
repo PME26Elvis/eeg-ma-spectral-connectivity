@@ -1,0 +1,7 @@
+﻿comparison,classifier,lopo_accuracy_mean,lopo_accuracy_std,n_held_out_subjects,pooled_epoch_accuracy
+rest1_vs_type1,KFDA,0.6866666666666668,0.12660086009888627,5,0.6866666666666666
+rest1_vs_type1,LDA,0.64,0.09902300518341964,5,0.64
+rest1_vs_type1,RBF-SVM,0.65,0.10929064207169999,5,0.65
+rest2_vs_type2,KFDA,0.51,0.08866290718846923,5,0.51
+rest2_vs_type2,LDA,0.5433333333333333,0.1346806923389128,5,0.5433333333333333
+rest2_vs_type2,RBF-SVM,0.53,0.10632758605157722,5,0.53
