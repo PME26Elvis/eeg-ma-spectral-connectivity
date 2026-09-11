@@ -1,0 +1,2 @@
+﻿n_rows,n_subjects,iplv_features,filter_order,definition
+600,5,126,4,abs(imag(mean(exp(1j*(phase_a-phase_b)))))

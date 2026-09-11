@@ -1,0 +1,132 @@
+{
+  "baseline_config": {
+    "sampling_rate_hz": 500,
+    "epoch_seconds": 5.0,
+    "analysis_channels": [
+      "FP1",
+      "FP2",
+      "F7",
+      "F3",
+      "Fz",
+      "F4",
+      "F8"
+    ],
+    "bandpass": {
+      "low_hz": 2.0,
+      "high_hz": 50.0,
+      "order": 4
+    },
+    "notch_hz": null,
+    "bands_hz": {
+      "delta": [
+        1.0,
+        4.0
+      ],
+      "theta": [
+        4.0,
+        8.0
+      ],
+      "alpha": [
+        8.0,
+        13.0
+      ],
+      "beta_low": [
+        13.0,
+        20.0
+      ],
+      "beta_high": [
+        20.0,
+        30.0
+      ],
+      "gamma": [
+        30.0,
+        45.0
+      ]
+    },
+    "band_power": {
+      "mode": "lab_dft_squared_sum"
+    },
+    "coherence": {
+      "mode": "lab_segmented_fft_msc",
+      "segment_seconds": 1.0,
+      "band_reduce": "mean"
+    },
+    "comparisons": [
+      {
+        "name": "rest1_vs_type1",
+        "rest_marker": 20,
+        "task_marker": 11,
+        "task_type": "Type1"
+      },
+      {
+        "name": "rest2_vs_type2",
+        "rest_marker": 24,
+        "task_marker": 12,
+        "task_type": "Type2"
+      }
+    ],
+    "expected_epochs_per_class": 30,
+    "feature_set": "plv_band_beta_high",
+    "sfs": {
+      "selector": "LDA",
+      "max_features": null,
+      "min_improvement": 0.0
+    },
+    "cv": {
+      "intra_outer_folds": 5,
+      "intra_inner_folds": 5,
+      "random_state": 20260909
+    },
+    "rbf_grid": {
+      "C": [
+        0.1,
+        1.0,
+        10.0,
+        50.0,
+        100.0,
+        1000.0
+      ],
+      "gamma_base": 1.05,
+      "gamma_exponents": [
+        -100,
+        -90,
+        -80,
+        -70,
+        -60,
+        -50,
+        -40,
+        -30,
+        -20,
+        -10,
+        0,
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90,
+        100
+      ]
+    },
+    "n_jobs": -1,
+    "raw_channels": [
+      "FP1",
+      "FP2",
+      "F7",
+      "F3",
+      "Fz",
+      "F4",
+      "F8",
+      "Cz"
+    ]
+  },
+  "experiment": {
+    "name": "plv_beta_high_only",
+    "feature_set": "plv_band_beta_high",
+    "question": "Is the PLV cross-subject effect specific to high-beta phase locking?"
+  },
+  "n_candidate_features": 21
+}

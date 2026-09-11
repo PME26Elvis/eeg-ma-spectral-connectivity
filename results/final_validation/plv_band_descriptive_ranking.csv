@@ -1,0 +1,13 @@
+﻿experiment,comparison,n_candidate_features,mean_across_classifier_means,std_across_classifier_means,n_classifiers,band
+plv_alpha_only,rest1_vs_type1,21,0.7411111111111112,0.0069388866648872165,3,alpha
+plv_gamma_only,rest1_vs_type1,21,0.6866666666666666,0.03711842908553347,3,gamma
+plv_beta_high_only,rest1_vs_type1,21,0.6366666666666667,0.01666666666666665,3,beta_high
+plv_delta_only,rest1_vs_type1,21,0.5922222222222223,0.021688023662158957,3,delta
+plv_beta_low_only,rest1_vs_type1,21,0.5844444444444444,0.005091750772173225,3,beta_low
+plv_theta_only,rest1_vs_type1,21,0.5488888888888889,0.006938886664887101,3,theta
+plv_alpha_only,rest2_vs_type2,21,0.5911111111111111,0.018358568490953665,3,alpha
+plv_theta_only,rest2_vs_type2,21,0.5222222222222223,0.029122983160180298,3,theta
+plv_delta_only,rest2_vs_type2,21,0.47444444444444445,0.005091750772173167,3,delta
+plv_beta_low_only,rest2_vs_type2,21,0.47222222222222227,0.03421067626297922,3,beta_low
+plv_gamma_only,rest2_vs_type2,21,0.4711111111111112,0.02545875386086576,3,gamma
+plv_beta_high_only,rest2_vs_type2,21,0.4711111111111111,0.02834966849371789,3,beta_high

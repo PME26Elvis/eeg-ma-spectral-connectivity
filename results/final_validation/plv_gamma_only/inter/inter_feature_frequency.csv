@@ -1,0 +1,13 @@
+﻿comparison,feature,selection_count
+rest1_vs_type1,PLV__F7__F3__gamma,4
+rest1_vs_type1,PLV__FP1__FP2__gamma,3
+rest1_vs_type1,PLV__FP2__Fz__gamma,3
+rest1_vs_type1,PLV__F3__Fz__gamma,2
+rest1_vs_type1,PLV__FP1__Fz__gamma,2
+rest2_vs_type2,PLV__FP1__F3__gamma,3
+rest2_vs_type2,PLV__F3__F4__gamma,1
+rest2_vs_type2,PLV__F7__F4__gamma,1
+rest2_vs_type2,PLV__FP1__F4__gamma,1
+rest2_vs_type2,PLV__FP1__FP2__gamma,1
+rest2_vs_type2,PLV__FP2__F4__gamma,1
+rest2_vs_type2,PLV__FP2__F8__gamma,1
