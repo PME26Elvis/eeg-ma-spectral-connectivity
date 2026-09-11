@@ -278,3 +278,127 @@ F3–Fz
 - 不因 accuracy 不理想而事後更改 baseline preprocessing / validation 定義。
 - 最終投影片 / 報告應同時呈現改善與沒有改善的實驗（例如 E1），避免只挑最高 accuracy 結果。
 - `n=5` 是目前最重要限制之一；平均 accuracy 應搭配 per-subject / held-out-subject 結果一起呈現。
+
+---
+
+## 7. PLV decomposition：E2a / E2b / E2c / E2d / E3
+
+為了拆解 E2 的改善來源，固定原本的 preprocessing、nested SFS、intra 5-fold、inter LOPO、classifier/grid 與 random state，只改候選 feature families。
+
+| Experiment | Feature set | Candidate features |
+|---|---|---:|
+| E2a | PLV only | 126 |
+| E2b | BP + PLV | 168 |
+| E2c | COH + PLV | 252 |
+| E2d | Asymmetry + PLV | 144 |
+| E3 | BP + COH + Asymmetry + PLV | 312 |
+| E2 full reference | BP + COH + PLV | 294 |
+
+### 7.1 Inter-subject：Rest1 vs Type1
+
+| Experiment | KFDA | LDA | RBF-SVM |
+|---|---:|---:|---:|
+| Poster baseline | 0.533 | 0.523 | 0.533 |
+| E2 full: BP+COH+PLV | 0.667 | 0.687 | 0.660 |
+| **E2a: PLV only** | **0.707** | 0.667 | **0.690** |
+| E2b: BP+PLV | 0.687 | 0.640 | 0.650 |
+| E2c: COH+PLV | 0.663 | 0.683 | 0.647 |
+| E2d: ASYM+PLV | 0.673 | **0.703** | 0.680 |
+| E3: all extensions | 0.620 | 0.647 | 0.610 |
+
+E2a 相較 Poster baseline 的 mean gain：
+
+```text
+KFDA    +0.173
+LDA     +0.143
+RBF-SVM +0.157
+```
+
+而 E2a 相較完整 E2（BP+COH+PLV）：
+
+```text
+KFDA    +0.040
+LDA     -0.020
+RBF-SVM +0.030
+```
+
+因此 **PLV-only 已幾乎完整保留 E2 的跨受試者增益，甚至在 KFDA / RBF-SVM 上略高於完整 E2**。這是目前最重要的 decomposition 結果：Type1 inter-subject improvement 的主要來源看起來是 PLV 本身，而不是單純增加 feature 數量或必須依賴 BP / COH 才成立。
+
+E2b（BP+PLV）沒有穩定優於 PLV-only，因此 BP 在這個 cross-subject setting 下不是必要成分。E2c（COH+PLV）平均 accuracy 與完整 E2 很接近，但沒有超越 PLV-only；不過它的 inter-subject standard deviation 明顯較低（KFDA/LDA/SVM 約 0.042/0.057/0.036），相較 PLV-only 約 0.128/0.116/0.126，可能表示 COH 與 PLV 的組合在不同 held-out subjects 間較穩定。這個「mean accuracy vs between-subject stability」的差異值得在後續投影片保留，但 n=5 下不能過度解讀。
+
+E2d（ASYM+PLV）在 LDA 得到 0.703，為該 classifier 的最高值，但 KFDA / RBF-SVM 並沒有相同優勢，因此目前不應宣稱 asymmetry 與 PLV 有穩定互補作用。
+
+E3 將所有 feature families 一次加入後，inter-subject Type1 反而降至約 0.61–0.65，低於 E2 full 與 PLV-only。這說明「更多 candidate features」不等於更好的跨人泛化；在只有 5 位受試者時，額外 subject-specific / redundant candidates 可能增加 feature-selection instability 或 overfitting 風險。
+
+### 7.2 Inter-subject：Rest2 vs Type2
+
+所有 decomposition 仍大致落在 chance 附近。PLV-only 約：
+
+```text
+KFDA    0.530
+LDA     0.570
+RBF-SVM 0.557
+```
+
+雖略高於部分 baseline 數值，但 standard deviation 大，其他 feature combinations 也沒有一致提升，因此目前仍沒有足夠證據支持 Type2 cross-subject improvement。這延續先前 E2 結果：PLV 的明顯效果主要是 Type1-specific，而不是任何 Rest-vs-MA comparison 都會提高。
+
+### 7.3 Intra-subject 與 inter-subject 的對比
+
+Type1 intra-subject 中，E3（全部 features）反而是表現最好的組合之一：
+
+```text
+KFDA    0.857
+LDA     0.860
+RBF-SVM 0.880
+```
+
+但同一 E3 在 inter-subject 明顯低於 PLV-only。
+
+這形成一個很重要的工作解讀：**BP / COH / asymmetry 等額外 feature family 可能含有對單一受試者很有辨識力、但跨受試者不穩定的資訊；PLV 相對更有機會捕捉跨人共通的 task-related representation。** 這個結論仍是 exploratory，但它能同時解釋「更多 features 幫助 intra、卻傷害 inter」的現象，比單純追求最高 accuracy 更有研究價值。
+
+### 7.4 SFS feature-family usage
+
+Rest1 vs Type1 的 inter LOPO 中，只要 PLV 存在，它在 **5/5 outer folds 都被 SFS 選到**：
+
+| Experiment | Family | Selection occurrences | Fold presence |
+|---|---|---:|---:|
+| E2 full | PLV | 23 | 5/5 |
+| E2 full | COH | 16 | 5/5 |
+| E2 full | BP | 3 | 2/5 |
+| E2a | PLV | 37 | 5/5 |
+| E2b | PLV | 32 | 5/5 |
+| E2b | BP | 4 | 3/5 |
+| E2c | PLV | 20 | 5/5 |
+| E2c | COH | 15 | 5/5 |
+| E2d | PLV | 34 | 5/5 |
+| E2d | ASYM | 3 | 3/5 |
+| E3 | PLV | 19 | 5/5 |
+| E3 | COH | 12 | 5/5 |
+| E3 | ASYM | 2 | 2/5 |
+| E3 | BP | 1 | 1/5 |
+
+這再次支持 PLV 是目前最穩定的 feature family。BP 與 ASYM 在 PLV 存在時只偶爾被選；COH 在有提供時仍會出現在 5/5 folds，表示它可能含有補充資訊，但目前沒有帶來一致的 mean-accuracy 增益。
+
+### 7.5 目前較強的工作結論
+
+截至 PLV decomposition，較合理的研究敘事更新為：
+
+1. Poster/Lab baseline 的 cross-subject performance 接近 chance，但 within-subject classification 明顯較高。
+2. E1 hemispheric asymmetry 本身沒有穩定改善 inter-subject performance。
+3. 加入 PLV 後，Type1 inter-subject accuracy 有明顯、跨 classifier 的提升。
+4. Decomposition 顯示 **PLV-only 已足以重現甚至略超過完整 E2 的 Type1 cross-subject performance**，因此 PLV 很可能是主要 improvement source。
+5. BP / asymmetry 並不是此 improvement 的必要成分；COH 可能降低 held-out-subject 間的 variance，但沒有明確提高 mean accuracy。
+6. 全部 feature families 對 intra-subject 可以更好，對 inter-subject 卻更差，支持「額外 features 含較多 subject-specific discrimination，而 PLV 較可能保留 cross-subject invariant information」的工作假說。
+7. Type2 仍沒有類似 cross-subject gain，因此上述現象目前只能描述為 Type1-specific。
+
+以上仍屬同一批 5 subjects 上的 post-hoc exploratory analyses；不能把 decomposition 中最高的 0.70 左右 accuracy 當成獨立 confirmatory validation，也不應從多個 feature sets 中只挑最高數字而忽略完整 experiment matrix。
+
+### 7.6 下一階段建議
+
+Feature-family decomposition 已經回答最核心的「PLV improvement 從哪裡來」問題。下一階段優先度建議改為：
+
+1. **Band-wise PLV ablation**：預先固定六個既有 bands，各自只用 21 個 PLV pair features，檢查 alpha 是否真的承擔主要 Type1 cross-subject signal，而不是只因 SFS 偶然偏好 alpha。
+2. **Zero-lag-robust phase-connectivity robustness check**：新增例如 PLI / imaginary-PLV / wPLI 類指標，確認 PLV gain 是否仍存在於較不受 common reference / volume conduction / zero-lag synchronization 影響的表示法中。
+3. 上述 robustness 若仍支持 phase connectivity，再考慮 **subject calibration / Euclidean Alignment**。這會改變 validation regime，必須獨立標示為 calibrated / domain-adapted setting，不和目前 strict zero-calibration LOPO 混為同一結果。
+
+這個優先序比繼續任意組合更多 feature families 更有科學資訊量。
