@@ -1,0 +1,37 @@
+{
+  "asymmetry": {
+    "mode": "log_ratio",
+    "epsilon": 1e-12,
+    "pairs": [
+      ["FP1", "FP2"],
+      ["F3", "F4"],
+      ["F7", "F8"]
+    ]
+  },
+  "plv": {
+    "filter_order": 4,
+    "source": "baseline_preprocessed_2_50_continuous",
+    "definition": "abs(mean(exp(1j*(phase_a-phase_b))))",
+    "phase_method": "bandpass_then_hilbert"
+  },
+  "experiments": [
+    {
+      "name": "e1_asymmetry",
+      "feature_set": "baseline_asym",
+      "description": "Poster baseline BP+COH plus 18 frontal hemispheric log-ratio asymmetry features",
+      "enabled_by_default": true
+    },
+    {
+      "name": "e2_plv",
+      "feature_set": "baseline_plv",
+      "description": "Poster baseline BP+COH plus 126 band-wise phase-locking value features",
+      "enabled_by_default": true
+    },
+    {
+      "name": "e1e2_combined",
+      "feature_set": "baseline_asym_plv",
+      "description": "Poster baseline BP+COH plus both E1 asymmetry and E2 PLV",
+      "enabled_by_default": false
+    }
+  ]
+}
