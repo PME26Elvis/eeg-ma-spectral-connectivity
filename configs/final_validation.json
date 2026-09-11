@@ -1,0 +1,56 @@
+{
+  "phase_robustness": {
+    "metric": "iPLV",
+    "filter_order": 4,
+    "definition": "abs(imag(mean(exp(1j*(phase_a-phase_b)))))",
+    "source": "baseline_preprocessed_2_50_continuous",
+    "phase_method": "bandpass_then_hilbert"
+  },
+  "references": {
+    "poster_baseline_results_root": "results",
+    "plv_only_results_root": "results/plv_decomposition/e2a_plv_only"
+  },
+  "experiments": [
+    {
+      "name": "plv_delta_only",
+      "feature_set": "plv_band_delta",
+      "question": "Is the PLV cross-subject effect specific to delta-band phase locking?"
+    },
+    {
+      "name": "plv_theta_only",
+      "feature_set": "plv_band_theta",
+      "question": "Is the PLV cross-subject effect specific to theta-band phase locking?"
+    },
+    {
+      "name": "plv_alpha_only",
+      "feature_set": "plv_band_alpha",
+      "question": "Does alpha-band PLV alone reproduce the main Type1 cross-subject effect suggested by SFS stability?"
+    },
+    {
+      "name": "plv_beta_low_only",
+      "feature_set": "plv_band_beta_low",
+      "question": "Is the PLV cross-subject effect specific to low-beta phase locking?"
+    },
+    {
+      "name": "plv_beta_high_only",
+      "feature_set": "plv_band_beta_high",
+      "question": "Is the PLV cross-subject effect specific to high-beta phase locking?"
+    },
+    {
+      "name": "plv_gamma_only",
+      "feature_set": "plv_band_gamma",
+      "question": "Is the PLV cross-subject effect specific to gamma-band phase locking?"
+    },
+    {
+      "name": "iplv_only",
+      "feature_set": "iplv",
+      "question": "Does a zero-lag-suppressing phase metric retain above-baseline cross-subject information?"
+    }
+  ],
+  "reporting": {
+    "primary_comparison": "rest1_vs_type1",
+    "secondary_comparison": "rest2_vs_type2",
+    "scope": "inter_only",
+    "stop_rule": "After this matrix, stop feature-engineering experiments on the same five subjects unless a methodological bug is found. Proceed to synthesis, figures, and report preparation."
+  }
+}
