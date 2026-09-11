@@ -76,9 +76,9 @@ def extract_all(raw_root: str | Path, cfg: Dict, out_dir: str | Path) -> Tuple[p
 def feature_columns(df: pd.DataFrame, feature_set: str = "all") -> List[str]:
     """Resolve feature families without changing the historical baseline semantics.
 
-    `all` intentionally remains the poster/lab baseline BP+COH set.  E1/E2
-    extensions use explicit names so a later report can cleanly distinguish the
-    replication baseline from newly proposed features.
+    `all` intentionally remains the poster/lab baseline BP+COH set.  Every
+    post-baseline representation uses an explicit feature-set name so reports
+    cannot accidentally relabel an extension as the replication baseline.
     """
     bp = [c for c in df.columns if c.startswith("BP__")]
     coh = [c for c in df.columns if c.startswith("COH__")]
@@ -86,22 +86,29 @@ def feature_columns(df: pd.DataFrame, feature_set: str = "all") -> List[str]:
     plv = [c for c in df.columns if c.startswith("PLV__")]
 
     sets = {
+        # Frozen Poster/Lab baseline semantics.
         "all": bp + coh,
         "baseline": bp + coh,
+        # Single-family / original ablations.
         "bp": bp,
         "coh": coh,
         "asym": asym,
         "plv": plv,
+        # E1 / E2 extensions already evaluated.
         "baseline_asym": bp + coh + asym,
         "baseline_plv": bp + coh + plv,
         "baseline_asym_plv": bp + coh + asym + plv,
         "bp_asym": bp + asym,
+        # PLV decomposition experiments.
+        "bp_plv": bp + plv,
         "coh_plv": coh + plv,
+        "asym_plv": asym + plv,
     }
     if feature_set not in sets:
         raise ValueError(
             "feature_set 必須是 all/baseline/bp/coh/asym/plv/"
-            "baseline_asym/baseline_plv/baseline_asym_plv/bp_asym/coh_plv"
+            "baseline_asym/baseline_plv/baseline_asym_plv/bp_asym/"
+            "bp_plv/coh_plv/asym_plv"
         )
     cols = sets[feature_set]
     if not cols:
