@@ -19,6 +19,11 @@ DEFAULT_HEMISPHERIC_PAIRS: Tuple[Tuple[str, str], ...] = (
     ("F7", "F8"),
 )
 
+# Align tables with integer/categorical epoch identity rather than an exact
+# floating-point timestamp equality.  onset_elapsed_s is retained from the
+# already-versioned baseline table and still available for auditing.
+ALIGN_COLUMNS = [c for c in META_COLUMNS if c != "onset_elapsed_s"]
+
 
 def _asymmetry_prefix(mode: str) -> str:
     mode = str(mode).lower()
@@ -239,10 +244,10 @@ def merge_baseline_and_extensions(
     left["subject_id"] = left["subject_id"].astype(str)
     right["subject_id"] = right["subject_id"].astype(str)
 
-    if left.duplicated(META_COLUMNS).any():
-        raise ValueError("Baseline feature table 的 metadata key 非唯一")
-    if right.duplicated(META_COLUMNS).any():
-        raise ValueError("Extension feature table 的 metadata key 非唯一")
+    if left.duplicated(ALIGN_COLUMNS).any():
+        raise ValueError("Baseline feature table 的 epoch alignment key 非唯一")
+    if right.duplicated(ALIGN_COLUMNS).any():
+        raise ValueError("Extension feature table 的 epoch alignment key 非唯一")
 
     extension_cols = [c for c in right.columns if c not in META_COLUMNS]
     overlap = sorted(set(extension_cols) & set(left.columns))
@@ -251,8 +256,8 @@ def merge_baseline_and_extensions(
 
     left["__row_order"] = np.arange(len(left))
     merged = left.merge(
-        right[META_COLUMNS + extension_cols],
-        on=META_COLUMNS,
+        right[ALIGN_COLUMNS + extension_cols],
+        on=ALIGN_COLUMNS,
         how="left",
         validate="one_to_one",
     ).sort_values("__row_order").drop(columns="__row_order").reset_index(drop=True)
@@ -301,11 +306,14 @@ def extract_all_extension_features(
         baseline_preprocessed = filter_continuous(raw_x, session.sampling_rate_hz, cfg)
         plv = extract_plv_session(session, baseline_preprocessed, cfg, extension_cfg)
 
-        ext = asym.merge(plv, on=META_COLUMNS, how="inner", validate="one_to_one")
-        # Reorder exactly like the already-versioned baseline table.
-        meta_order = base_subject[META_COLUMNS].copy()
-        meta_order["__row_order"] = np.arange(len(meta_order))
-        ext = meta_order.merge(ext, on=META_COLUMNS, how="left", validate="one_to_one")
+        plv_cols = [c for c in plv.columns if c.startswith("PLV__")]
+        asym["__row_order"] = np.arange(len(asym))
+        ext = asym.merge(
+            plv[ALIGN_COLUMNS + plv_cols],
+            on=ALIGN_COLUMNS,
+            how="left",
+            validate="one_to_one",
+        )
         ext = ext.sort_values("__row_order").drop(columns="__row_order").reset_index(drop=True)
         if ext.isna().any().any():
             raise ValueError(f"{subject}: extension features 對齊後出現缺值")
