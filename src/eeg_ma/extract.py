@@ -74,18 +74,38 @@ def extract_all(raw_root: str | Path, cfg: Dict, out_dir: str | Path) -> Tuple[p
 
 
 def feature_columns(df: pd.DataFrame, feature_set: str = "all") -> List[str]:
+    """Resolve feature families without changing the historical baseline semantics.
+
+    `all` intentionally remains the poster/lab baseline BP+COH set.  E1/E2
+    extensions use explicit names so a later report can cleanly distinguish the
+    replication baseline from newly proposed features.
+    """
     bp = [c for c in df.columns if c.startswith("BP__")]
     coh = [c for c in df.columns if c.startswith("COH__")]
-    if feature_set == "all":
-        cols = bp + coh
-    elif feature_set == "bp":
-        cols = bp
-    elif feature_set == "coh":
-        cols = coh
-    else:
-        raise ValueError("feature_set 必須是 all / bp / coh")
+    asym = [c for c in df.columns if c.startswith("ASYM_")]
+    plv = [c for c in df.columns if c.startswith("PLV__")]
+
+    sets = {
+        "all": bp + coh,
+        "baseline": bp + coh,
+        "bp": bp,
+        "coh": coh,
+        "asym": asym,
+        "plv": plv,
+        "baseline_asym": bp + coh + asym,
+        "baseline_plv": bp + coh + plv,
+        "baseline_asym_plv": bp + coh + asym + plv,
+        "bp_asym": bp + asym,
+        "coh_plv": coh + plv,
+    }
+    if feature_set not in sets:
+        raise ValueError(
+            "feature_set 必須是 all/baseline/bp/coh/asym/plv/"
+            "baseline_asym/baseline_plv/baseline_asym_plv/bp_asym/coh_plv"
+        )
+    cols = sets[feature_set]
     if not cols:
-        raise ValueError("找不到 feature columns")
+        raise ValueError(f"feature_set={feature_set} 找不到 feature columns")
     return cols
 
 

@@ -113,7 +113,7 @@ python scripts/02_extract_features.py
 continuous raw EEG
 → 4th-order Butterworth 2–50 Hz
 → zero-phase sosfiltfilt
-→ 依 SessionStart / event elapsed time 切 5-s epochs
+→ 依 SessionStart / event elapsed time切 5-s epochs
 ```
 
 Rest：marker `20 / 24`。
@@ -425,3 +425,50 @@ python scripts/run_all.py
 - 為了提高 accuracy 事後調整 band / CV 定義：不做
 
 更細的公式與來源中「有明定 / 未明定」的邊界見 [`docs/method_definition.md`](docs/method_definition.md)。
+
+## 13. E1 / E2：baseline 之外的 feature extensions
+
+目前 Poster/Lab baseline 已 freeze；以下方法**不是學長海報原流程**，而是針對跨受試者泛化問題新增的專題 extension：
+
+```text
+E1: BP + COH + frontal hemispheric asymmetry
+E2: BP + COH + Phase Locking Value (PLV)
+```
+
+E1 使用三組 frontal homologous pairs：
+
+```text
+FP1 ↔ FP2
+F3  ↔ F4
+F7  ↔ F8
+```
+
+正式預設使用 `log(BP_right)-log(BP_left)`，共 `3 × 6 = 18` 個 asymmetry features。
+
+E2 對 21 組 channel pairs、六頻帶，以 continuous band-pass → Hilbert phase 計算：
+
+```text
+PLV = |mean(exp(j*(phi_a-phi_b)))|
+```
+
+共 `21 × 6 = 126` 個 PLV features。
+
+本機有 raw data 時先抽 extension features：
+
+```bash
+python scripts/08_extract_extension_features.py
+```
+
+再跑與 baseline 完全相同的 nested intra / LOPO inter evaluation：
+
+```bash
+python scripts/09_run_extension_experiments.py
+```
+
+預設只跑 E1 與 E2 分開比較；確認後才可選擇：
+
+```bash
+python scripts/09_run_extension_experiments.py --include-combined
+```
+
+詳細公式、避免 leakage 的設計、輸出檔案與結果解讀方式見 [`docs/extensions_e1_e2.md`](docs/extensions_e1_e2.md)。
