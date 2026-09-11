@@ -79,11 +79,16 @@ def feature_columns(df: pd.DataFrame, feature_set: str = "all") -> List[str]:
     `all` intentionally remains the poster/lab baseline BP+COH set.  Every
     post-baseline representation uses an explicit feature-set name so reports
     cannot accidentally relabel an extension as the replication baseline.
+
+    Final validation additionally supports `plv_band_<band>` selectors and
+    `iplv`.  These are deliberately narrow hypothesis/robustness checks rather
+    than new baseline definitions.
     """
     bp = [c for c in df.columns if c.startswith("BP__")]
     coh = [c for c in df.columns if c.startswith("COH__")]
     asym = [c for c in df.columns if c.startswith("ASYM_")]
     plv = [c for c in df.columns if c.startswith("PLV__")]
+    iplv = [c for c in df.columns if c.startswith("IPLV__")]
 
     sets = {
         # Frozen Poster/Lab baseline semantics.
@@ -94,6 +99,7 @@ def feature_columns(df: pd.DataFrame, feature_set: str = "all") -> List[str]:
         "coh": coh,
         "asym": asym,
         "plv": plv,
+        "iplv": iplv,
         # E1 / E2 extensions already evaluated.
         "baseline_asym": bp + coh + asym,
         "baseline_plv": bp + coh + plv,
@@ -104,11 +110,19 @@ def feature_columns(df: pd.DataFrame, feature_set: str = "all") -> List[str]:
         "coh_plv": coh + plv,
         "asym_plv": asym + plv,
     }
+
+    if feature_set.startswith("plv_band_"):
+        band = feature_set[len("plv_band_"):]
+        cols = [c for c in plv if c.endswith(f"__{band}")]
+        if not cols:
+            raise ValueError(f"feature_set={feature_set} 找不到該 band 的 PLV columns")
+        return cols
+
     if feature_set not in sets:
         raise ValueError(
-            "feature_set 必須是 all/baseline/bp/coh/asym/plv/"
+            "feature_set 必須是 all/baseline/bp/coh/asym/plv/iplv/"
             "baseline_asym/baseline_plv/baseline_asym_plv/bp_asym/"
-            "bp_plv/coh_plv/asym_plv"
+            "bp_plv/coh_plv/asym_plv，或 plv_band_<band>"
         )
     cols = sets[feature_set]
     if not cols:
