@@ -1,0 +1,8 @@
+﻿figure,report_role,variant
+fig01_baseline_intra_vs_inter,Establishes the intra/inter generalization gap that motivates the rest of the analysis.,slide
+fig02_baseline_decomposition_asymmetry,Shows baseline BP/COH decomposition and the asymmetry extension under the same SFS pipeline.,slide
+fig03_plv_initial_gain_subject_consistency,Shows the initial PLV gain and whether it is broad across held-out subjects rather than driven by one participant.,slide
+fig04_plv_decomposition_all_feature_families,Tests where the PLV gain comes from and explicitly includes the all-feature-family candidate pool.,slide
+fig05_plv_band_validation_alpha_recurrence,Connects the initial alpha SFS recurrence to a full six-band validation.,slide
+fig06_zero_lag_sensitivity,Tests whether the PLV gain survives a zero-lag-suppressing representation (iPLV).,slide
+fig07_behavioral_context,Provides behavioral context for the stronger Type1 finding and the Type2 ceiling effect.,slide
