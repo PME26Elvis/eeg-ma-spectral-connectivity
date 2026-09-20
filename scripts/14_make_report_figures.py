@@ -343,7 +343,7 @@ def fig04_plv_decomposition(root: Path, out: Path, v: Variant) -> list[Path]:
     vals, errs = _pull_rows(work, cats, "category", "accuracy_mean", "accuracy_std")
 
     fig, ax = plt.subplots(figsize=(12.0 * v.scale, 5.2 * v.scale), constrained_layout=True)
-    _grouped_bars(ax, cats, vals, errs, ylim=(0.45, 0.80), ylabel="LOPO accuracy")
+    _grouped_bars(ax, cats, vals, errs, ylim=(0.40, 0.86), ylabel="LOPO accuracy")
     _chance(ax)
     ax.set_title("PLV decomposition — Rest1 vs Type1")
     ax.text(
