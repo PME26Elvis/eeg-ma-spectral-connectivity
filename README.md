@@ -120,7 +120,7 @@ R_{xy}=\frac{1}{T}\sum_{t=1}^{T}e^{j[\phi_x(t)-\phi_y(t)]},
 \qquad
 \mathrm{PLV}_{xy}=|R_{xy}|,
 \qquad
-\mathrm{iPLV}_{xy}=|\operatorname{Im}(R_{xy})|
+\mathrm{iPLV}_{xy}=|\mathrm{Im}(R_{xy})|
 $$
 
 其中 \(b\) 為頻帶、\(X[k]\) 為離散傅立葉轉換、\(G_{xx}/G_{yy}/G_{xy}\) 分別為自功率與交叉功率譜估計，\(L/R\) 為左右同源電極，\(\phi_x,\phi_y\) 為窄頻解析訊號的相位。BP 沿用實驗室教材的 **DFT 平方幅值頻帶總和**；Coherence 則先將每個 5 秒片段分為五個不重疊的 1 秒區段，平均頻譜後計算平方幅度相干性。
