@@ -2,9 +2,11 @@
 
 規劃日期：2026-11-09（Asia/Taipei）  
 檢查基準：[`df6b1394f0f68c4ce5a3c6659f09cc7fb918ecc1`](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/tree/df6b1394f0f68c4ce5a3c6659f09cc7fb918ecc1)  
-狀態：**規劃提案；本 PR 不實作新演算法、不重算或覆寫正式研究結果。**
+狀態：**研究規劃與實作追蹤；正式研究結果維持封存。**
 
 規劃 PR：[#6](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/pull/6)；實作追蹤見第 6 節的獨立 Issues。
+
+W1（[#7](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/7)）與 W2（[#8](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/8)）已有實作：不可變 run manifest、完整性驗證與原子報告、schema 2.0、共用 ingestion QA、多 session 與明確 legacy adapter。操作與遷移見 [完整流程](integrity_workflow.md)；[歷史 inventory](manifests/legacy_discovery_inventory.json) 僅記錄現存 bytes，未回填未知生成環境。下列缺口表保留規劃時的證據；W3–W7 依原 Issues 持續追蹤。
 
 ## 1. 方向與決策
 
@@ -203,7 +205,7 @@ Calibration/EA 若使用 held-out subject 的整段測試資料估轉換，必�
 
 ### 下一個可以直接開工的 checkpoint
 
-先完成 **W1＋W2 的最小版本**，以本次已復現的錯誤作 regression tests；同時讓 W4 從草案變成可鎖定的協定。其後完成 W3/W5/W7 的 synthetic 全流程，才對新受試者資料啟動正式固定模型驗證。沒有新受試者期間，仍可完成以上工程，不需再對五人資料找更高分數。
+**W1＋W2 已建立實作與失敗情境的 regression tests。** 下一步讓 W4 從草案變成可鎖定的協定，並完成 W3/W5/W7 的 synthetic 全流程，才對新受試者資料啟動正式固定模型驗證。沒有新受試者期間，仍可完成以上工程，不需再對五人資料找更高分數。
 
 ## 參考資料
 

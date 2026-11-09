@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib
@@ -9,6 +10,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import numpy as np
 import pandas as pd
+
+from eeg_ma.artifacts import new_output_directory
+from eeg_ma.provenance import input_inventory, read_csv_literal, resolve_report_root, sha256_file, validate_complete_run
 
 
 CLASSIFIERS = ["KFDA", "LDA", "RBF-SVM"]
@@ -29,7 +33,7 @@ def _read(path: Path) -> pd.DataFrame:
             f"Missing required result file: {path}\n"
             "Run scripts/12_run_final_validation.py first and keep the formal result tree intact."
         )
-    return pd.read_csv(path, encoding="utf-8-sig")
+    return read_csv_literal(path)
 
 
 def _save(fig: plt.Figure, base: Path) -> list[Path]:
@@ -287,27 +291,51 @@ def plot_phase_robustness(final_summary: pd.DataFrame, out_dir: Path) -> list[Pa
 def main() -> int:
     p = argparse.ArgumentParser(description="Create the final report figures from frozen formal results")
     p.add_argument("--results-root", default="results")
-    p.add_argument("--out-dir", default="results/final_figures")
+    p.add_argument("--out-dir", default="outputs/figures/final")
+    p.add_argument("--allow-legacy-results", action="store_true", help="Explicitly read historical results with unverified execution provenance")
     p.add_argument("--network-top-n", type=int, default=12)
     args = p.parse_args()
 
     root = Path(args.results_root)
     out = Path(args.out_dir)
 
-    extension_summary = _read(root / "extensions" / "extension_summary.csv")
-    decomposition_summary = _read(root / "plv_decomposition" / "plv_decomposition_summary.csv")
-    final_summary = _read(root / "final_validation" / "final_validation_summary.csv")
-    final_delta = _read(root / "final_validation" / "delta_vs_poster_by_unit.csv")
-    alpha_freq = _read(
-        root / "final_validation" / "plv_alpha_only" / "inter" / "inter_feature_frequency.csv"
-    )
+    reports = {family: resolve_report_root(root / family, allow_legacy=args.allow_legacy_results)
+               for family in ("extensions", "plv_decomposition", "final_validation")}
+    alpha = root / "final_validation" / "plv_alpha_only"
+    if (reports["final_validation"] / "run_manifest.json").exists():
+        final_manifest = validate_complete_run(reports["final_validation"])
+        if final_manifest["identity"].get("kind") != "report":
+            raise ValueError("Final figures require an aggregated final-validation report")
+        alpha_manifest = validate_complete_run(alpha)
+        expected = final_manifest["identity"]["inventory"].get("plv_alpha_only", {})
+        if (expected.get("run_id") != alpha_manifest["run_id"] or
+                expected.get("manifest_sha256") != sha256_file(alpha / "run_manifest.json")):
+            raise ValueError("Alpha feature frequencies do not belong to the selected report")
+    elif (alpha / "run_manifest.json").exists():
+        raise ValueError("Cannot combine a legacy final report with a managed alpha experiment")
+    elif not args.allow_legacy_results:
+        raise ValueError("Alpha experiment lacks a complete run manifest")
+    sources = {
+        "extension_summary": reports["extensions"] / "extension_summary.csv",
+        "decomposition_summary": reports["plv_decomposition"] / "plv_decomposition_summary.csv",
+        "final_summary": reports["final_validation"] / "final_validation_summary.csv",
+        "final_delta": reports["final_validation"] / "delta_vs_poster_by_unit.csv",
+        "alpha_frequency": alpha / "inter" / "inter_feature_frequency.csv",
+    }
+    extension_summary, decomposition_summary, final_summary, final_delta, alpha_freq = [_read(p) for p in sources.values()]
 
-    made: list[Path] = []
-    made += plot_analysis_story(extension_summary, decomposition_summary, final_summary, out)
-    made += plot_band_ranking(final_summary, out)
-    made += plot_alpha_subjects(final_delta, out)
-    made += plot_phase_robustness(final_summary, out)
-    made += plot_alpha_network(alpha_freq, out, top_n=args.network_top_n)
+    with new_output_directory(out) as stage:
+        made: list[Path] = []
+        made += plot_analysis_story(extension_summary, decomposition_summary, final_summary, stage)
+        made += plot_band_ranking(final_summary, stage)
+        made += plot_alpha_subjects(final_delta, stage)
+        made += plot_phase_robustness(final_summary, stage)
+        made += plot_alpha_network(alpha_freq, stage, top_n=args.network_top_n)
+        (stage / "figure_sources.json").write_text(json.dumps({
+            "inputs": input_inventory(sources),
+            "allow_legacy_results": args.allow_legacy_results,
+        }, indent=2) + "\n", encoding="utf-8")
+        made = [out / p.relative_to(stage) for p in made]
 
     print("=== FINAL FIGURES ===")
     for path in made:

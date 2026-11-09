@@ -13,6 +13,8 @@ from eeg_ma.config import load_config
 from eeg_ma.evaluation import run_inter_subject, run_intra_subject
 from eeg_ma.extensions import merge_baseline_and_extensions
 from eeg_ma.extract import feature_columns
+from eeg_ma.experiment_runs import add_identity_arguments, load_features, prepare_matrix, source_inputs
+from eeg_ma.provenance import read_csv_literal
 
 
 UNIT_KEYS = ["scope", "unit_id", "comparison", "classifier"]
@@ -65,8 +67,8 @@ def _units_from_result_root(root: Path) -> pd.DataFrame:
         raise FileNotFoundError(
             f"Reference result root {root} must contain intra/intra_folds.csv and inter/inter_folds.csv"
         )
-    intra = pd.read_csv(intra_path, encoding="utf-8-sig")
-    inter = pd.read_csv(inter_path, encoding="utf-8-sig")
+    intra = read_csv_literal(intra_path, encoding="utf-8-sig")
+    inter = read_csv_literal(inter_path, encoding="utf-8-sig")
     return _units_from_folds(intra, inter)
 
 
@@ -143,7 +145,7 @@ def _sfs_family_usage(experiment: str, root: Path, scope: str) -> pd.DataFrame:
 
     if not path.exists():
         return pd.DataFrame()
-    sfs = pd.read_csv(path, encoding="utf-8-sig")
+    sfs = read_csv_literal(path, encoding="utf-8-sig")
     if sfs.empty:
         return pd.DataFrame()
 
@@ -184,8 +186,8 @@ def _sfs_family_usage(experiment: str, root: Path, scope: str) -> pd.DataFrame:
 
 def _read_folds(root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return (
-        pd.read_csv(root / "intra" / "intra_folds.csv", encoding="utf-8-sig"),
-        pd.read_csv(root / "inter" / "inter_folds.csv", encoding="utf-8-sig"),
+        read_csv_literal(root / "intra" / "intra_folds.csv", encoding="utf-8-sig"),
+        read_csv_literal(root / "inter" / "inter_folds.csv", encoding="utf-8-sig"),
     )
 
 
@@ -205,191 +207,65 @@ def _select_experiments(matrix: Dict, include_secondary: bool, requested: Sequen
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(
-        description=(
-            "Run E2a/E2b/E2c PLV decomposition plus E3, using the same leakage-safe "
-            "SFS/CV/classifier pipeline as the frozen Poster/Lab baseline"
-        )
-    )
+    p = argparse.ArgumentParser(description="Run PLV decomposition with immutable runs and inventory aggregation")
     p.add_argument("--baseline-features", default="data/features/features_all.csv")
     p.add_argument("--extension-features", default="data/features/extensions/features_extensions.csv")
     p.add_argument("--config", default="configs/lab_replication.json")
     p.add_argument("--experiment-config", default="configs/plv_decomposition.json")
-    p.add_argument("--out-root", default="results/plv_decomposition")
+    p.add_argument("--out-root", default="outputs/results/plv_decomposition")
     p.add_argument("--poster-results-root", default=None)
     p.add_argument("--e2-full-results-root", default=None)
-    p.add_argument(
-        "--include-secondary",
-        action="store_true",
-        help="Also run E2d asymmetry+PLV, which is secondary/exploratory rather than a primary decomposition.",
-    )
-    p.add_argument(
-        "--experiments",
-        nargs="*",
-        default=None,
-        help="Optional exact experiment names; overrides the default primary/secondary selection.",
-    )
-    p.add_argument(
-        "--resume",
-        action="store_true",
-        help="Reuse an experiment if both intra_folds.csv and inter_folds.csv already exist under its output root.",
-    )
+    p.add_argument("--include-secondary", action="store_true")
+    p.add_argument("--experiments", nargs="*", default=None)
+    add_identity_arguments(p)
     args = p.parse_args()
-
-    baseline = pd.read_csv(args.baseline_features, encoding="utf-8-sig")
-    extensions = pd.read_csv(args.extension_features, encoding="utf-8-sig")
+    baseline = load_features(args.baseline_features, args.legacy_manifest)
+    extensions = load_features(args.extension_features, args.legacy_manifest)
     merged = merge_baseline_and_extensions(baseline, extensions)
-
-    cfg_base = load_config(args.config)
-    matrix_path = Path(args.experiment_config)
-    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
-    experiments = _select_experiments(matrix, args.include_secondary, args.experiments)
-    if not experiments:
-        raise ValueError("No decomposition experiments selected")
-
-    refs = matrix.get("references", {})
-    poster_root = Path(args.poster_results_root or refs.get("poster_baseline_results_root", "results"))
-    e2_full_root = Path(args.e2_full_results_root or refs.get("e2_full_results_root", "results/extensions/e2_plv"))
-    out_root = Path(args.out_root)
-    out_root.mkdir(parents=True, exist_ok=True)
-
-    # Reference results are never recomputed here; they remain frozen anchors.
+    cfg = load_config(args.config)
+    spec = json.loads(Path(args.experiment_config).read_text(encoding="utf-8"))
+    selected = _select_experiments(spec, args.include_secondary, args.experiments)
+    all_experiments = spec.get("primary_experiments", []) + spec.get("secondary_experiments", [])
+    refs = spec.get("references", {})
     reference_defs = [
-        ("poster_baseline", "baseline", poster_root),
-        ("e2_full_baseline_plv", "baseline_plv", e2_full_root),
+        ("poster_baseline", "baseline", Path(args.poster_results_root or refs.get("poster_baseline_results_root", "results"))),
+        ("e2_full_baseline_plv", "baseline_plv", Path(args.e2_full_results_root or refs.get("e2_full_results_root", "results/extensions/e2_plv"))),
     ]
-    reference_units: Dict[str, pd.DataFrame] = {}
-    summary_frames: List[pd.DataFrame] = []
-    family_frames: List[pd.DataFrame] = []
-
-    for label, feature_set, root in reference_defs:
-        units = _units_from_result_root(root)
-        reference_units[label] = units
-        n_features = len(feature_columns(merged, feature_set))
-        summary_frames.append(_summary_from_units(units, label, feature_set, n_features, role="reference"))
-        for scope in ("inter", "intra"):
-            usage = _sfs_family_usage(label, root, scope)
-            if not usage.empty:
-                family_frames.append(usage)
-
-    snapshot = {
-        "baseline_config_path": str(args.config),
-        "experiment_matrix_path": str(matrix_path),
-        "poster_results_root": str(poster_root),
-        "e2_full_results_root": str(e2_full_root),
-        "selected_experiments": experiments,
-    }
-    (out_root / "experiment_matrix_snapshot.json").write_text(
-        json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-    delta_vs_poster: List[pd.DataFrame] = []
-    delta_vs_e2: List[pd.DataFrame] = []
-
-    print("=== PLV DECOMPOSITION EXPERIMENTS ===")
-    print(f"rows={len(merged)} subjects={merged['subject_id'].nunique()}")
-    print("Frozen references: poster_baseline, e2_full_baseline_plv")
-
-    for experiment in experiments:
-        name = str(experiment["name"])
-        feature_set = str(experiment["feature_set"])
-        n_features = len(feature_columns(merged, feature_set))
-        root = out_root / name
-        root.mkdir(parents=True, exist_ok=True)
-
-        cfg = copy.deepcopy(cfg_base)
-        cfg["feature_set"] = feature_set
-        (root / "config_snapshot.json").write_text(
-            json.dumps(
-                {
-                    "baseline_config": cfg,
-                    "experiment": experiment,
-                    "n_candidate_features": n_features,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-        can_resume = (
-            args.resume
-            and (root / "intra" / "intra_folds.csv").exists()
-            and (root / "inter" / "inter_folds.csv").exists()
-        )
-        print(f"\n--- {name}: feature_set={feature_set}, candidates={n_features} ---")
-        if can_resume:
-            print("[resume] Reusing existing folds")
-            intra_folds, inter_folds = _read_folds(root)
-        else:
-            intra_folds, _ = run_intra_subject(merged, cfg, root / "intra")
-            inter_folds, _ = run_inter_subject(merged, cfg, root / "inter")
-
-        units = _units_from_folds(intra_folds, inter_folds)
-        summary_frames.append(_summary_from_units(units, name, feature_set, n_features, role="experiment"))
-        delta_vs_poster.append(
-            _paired_delta(units, reference_units["poster_baseline"], name, "poster_baseline")
-        )
-        delta_vs_e2.append(
-            _paired_delta(units, reference_units["e2_full_baseline_plv"], name, "e2_full_baseline_plv")
-        )
-        for scope in ("inter", "intra"):
-            usage = _sfs_family_usage(name, root, scope)
-            if not usage.empty:
-                family_frames.append(usage)
-
-    summary = pd.concat(summary_frames, ignore_index=True)
-    scope_order = pd.Categorical(summary["scope"], categories=["inter", "intra"], ordered=True)
-    summary = (
-        summary.assign(_scope_order=scope_order)
-        .sort_values(["_scope_order", "comparison", "classifier", "role", "experiment"])
-        .drop(columns="_scope_order")
-    )
-    summary.to_csv(out_root / "plv_decomposition_summary.csv", index=False, encoding="utf-8-sig")
-
-    poster_delta = pd.concat(delta_vs_poster, ignore_index=True)
-    e2_delta = pd.concat(delta_vs_e2, ignore_index=True)
-    poster_delta.to_csv(out_root / "delta_vs_poster_by_unit.csv", index=False, encoding="utf-8-sig")
-    e2_delta.to_csv(out_root / "delta_vs_e2_full_by_unit.csv", index=False, encoding="utf-8-sig")
-    poster_delta_summary = _delta_summary(poster_delta)
-    e2_delta_summary = _delta_summary(e2_delta)
-    poster_delta_summary.to_csv(out_root / "delta_vs_poster_summary.csv", index=False, encoding="utf-8-sig")
-    e2_delta_summary.to_csv(out_root / "delta_vs_e2_full_summary.csv", index=False, encoding="utf-8-sig")
-
-    if family_frames:
-        family = pd.concat(family_frames, ignore_index=True).sort_values(
-            ["scope", "comparison", "experiment", "family"]
-        )
-        family.to_csv(out_root / "sfs_feature_family_usage.csv", index=False, encoding="utf-8-sig")
-    else:
-        family = pd.DataFrame()
-
-    print("\n=== PLV DECOMPOSITION SUMMARY ===")
-    print(summary.to_string(index=False))
-
-    primary_comp = str(matrix.get("reporting", {}).get("primary_comparison", "rest1_vs_type1"))
-    print(f"\n=== INTER {primary_comp}: DELTA VS POSTER BASELINE ===")
-    x = poster_delta_summary.loc[
-        (poster_delta_summary["scope"] == "inter")
-        & (poster_delta_summary["comparison"] == primary_comp)
-    ]
-    print(x.to_string(index=False))
-
-    print(f"\n=== INTER {primary_comp}: DELTA VS E2 FULL (BP+COH+PLV) ===")
-    x = e2_delta_summary.loc[
-        (e2_delta_summary["scope"] == "inter")
-        & (e2_delta_summary["comparison"] == primary_comp)
-    ]
-    print(x.to_string(index=False))
-
-    if not family.empty:
-        print(f"\n=== INTER {primary_comp}: SFS FEATURE-FAMILY USAGE ===")
-        x = family.loc[(family["scope"] == "inter") & (family["comparison"] == primary_comp)]
-        print(x.to_string(index=False))
-
-    print(f"\nsummary={out_root / 'plv_decomposition_summary.csv'}")
-    print(f"per-unit deltas={out_root / 'delta_vs_poster_by_unit.csv'}")
-    print(f"family usage={out_root / 'sfs_feature_family_usage.csv'}")
+    matrix, evaluator = prepare_matrix(merged, cfg, experiments=all_experiments, selected=[x["name"] for x in selected],
+        scopes=("intra", "inter"), out_root=args.out_root,
+        input_paths=source_inputs({"baseline_features": args.baseline_features, "extension_features": args.extension_features,
+            "config": args.config, "experiment_config": args.experiment_config}, args.legacy_manifest),
+        reference_paths={name: root for name, _, root in reference_defs}, matrix_config=spec, resume=args.resume)
+    reference_units = {label: _units_from_result_root(root) for label, _, root in reference_defs}
+    by_name = {x["name"]: x for x in all_experiments}
+    def report(inventory):
+        summaries, families, poster_delta, e2_delta = [], [], [], []
+        for label, feature_set, root in reference_defs:
+            summaries.append(_summary_from_units(reference_units[label], label, feature_set, len(feature_columns(merged, feature_set)), "reference"))
+            for scope in ("inter", "intra"):
+                usage = _sfs_family_usage(label, root, scope)
+                if not usage.empty:
+                    families.append(usage)
+        for name, root in inventory.items():
+            feature_set = by_name[name]["feature_set"]
+            units = _units_from_folds(*_read_folds(root))
+            summaries.append(_summary_from_units(units, name, feature_set, len(feature_columns(merged, feature_set)), "experiment"))
+            poster_delta.append(_paired_delta(units, reference_units["poster_baseline"], name, "poster_baseline"))
+            e2_delta.append(_paired_delta(units, reference_units["e2_full_baseline_plv"], name, "e2_full_baseline_plv"))
+            for scope in ("inter", "intra"):
+                usage = _sfs_family_usage(name, root, scope)
+                if not usage.empty:
+                    families.append(usage)
+        poster = pd.concat(poster_delta, ignore_index=True)
+        e2 = pd.concat(e2_delta, ignore_index=True)
+        tables = {"plv_decomposition_summary.csv": pd.concat(summaries, ignore_index=True).sort_values(["scope", "comparison", "classifier", "role", "experiment"]),
+            "delta_vs_poster_by_unit.csv": poster, "delta_vs_e2_full_by_unit.csv": e2,
+            "delta_vs_poster_summary.csv": _delta_summary(poster), "delta_vs_e2_full_summary.csv": _delta_summary(e2)}
+        if families:
+            tables["sfs_feature_family_usage.csv"] = pd.concat(families, ignore_index=True).sort_values(["scope", "comparison", "experiment", "family"])
+        return tables
+    _, report_root = matrix.run(evaluator, report, required_experiments=[x["name"] for x in spec.get("primary_experiments", [])])
+    print(f"report={report_root}")
     return 0
 
 

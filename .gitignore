@@ -17,6 +17,9 @@ venv/
 /results/scratch/
 /results/tmp/
 
+# New, immutable execution outputs are separate from frozen research evidence.
+/outputs/
+
 # Feature tables are intentionally NOT ignored: they are small enough to version.
 
 # OS / IDE

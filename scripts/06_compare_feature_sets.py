@@ -1,75 +1,49 @@
 from __future__ import annotations
 
 import argparse
-import copy
-import json
 from pathlib import Path
-
 import pandas as pd
 
 from eeg_ma.config import load_config
-from eeg_ma.evaluation import run_inter_subject, run_intra_subject
-from eeg_ma.visualization import collect_feature_set_summary
+from eeg_ma.experiment_runs import add_identity_arguments, load_features, prepare_matrix, source_inputs
+from eeg_ma.provenance import read_csv_literal
+
+
+def _summary(root, feature_set):
+    rows = []
+    for scope in ("intra", "inter"):
+        path = root / scope / ("intra_overall_summary.csv" if scope == "intra" else "inter_summary.csv")
+        table = read_csv_literal(path).rename(columns={
+            "participant_accuracy_mean": "accuracy_mean", "participant_accuracy_std": "accuracy_std", "n_subjects": "n_units",
+            "lopo_accuracy_mean": "accuracy_mean", "lopo_accuracy_std": "accuracy_std", "n_held_out_subjects": "n_units"})
+        table["scope"] = scope
+        table["feature_set"] = feature_set
+        rows.append(table[["scope", "feature_set", "comparison", "classifier", "accuracy_mean", "accuracy_std", "n_units"]])
+    return pd.concat(rows, ignore_index=True)
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(
-        description="Run BP-only / COH-only SFS + LDA / RBF-SVM / KFDA comparisons"
-    )
+    p = argparse.ArgumentParser(description="Run BP/COH comparisons with immutable runs and complete-inventory reports")
     p.add_argument("--features", default="data/features/features_all.csv")
     p.add_argument("--config", default="configs/lab_replication.json")
-    p.add_argument("--results-root", default="results")
-    p.add_argument(
-        "--feature-sets",
-        nargs="+",
-        choices=["bp", "coh"],
-        default=["bp", "coh"],
-        help="Feature sets to rerun. Canonical BP+COH results are read from results/intra and results/inter.",
-    )
+    p.add_argument("--results-root", default="results", help="Read-only baseline reference root; never an output destination")
+    p.add_argument("--out-root", default="outputs/results/feature_sets")
+    p.add_argument("--feature-sets", nargs="+", choices=["bp", "coh"], default=["bp", "coh"])
+    add_identity_arguments(p)
     args = p.parse_args()
-
-    features = pd.read_csv(args.features, encoding="utf-8-sig")
-    base_cfg = load_config(args.config)
-    results_root = Path(args.results_root)
-
-    for feature_set in args.feature_sets:
-        cfg = copy.deepcopy(base_cfg)
-        cfg["feature_set"] = feature_set
-        root = results_root / "feature_sets" / feature_set
-        root.mkdir(parents=True, exist_ok=True)
-        (root / "config_snapshot.json").write_text(
-            json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
-
-        print(f"\n=== {feature_set.upper()} ONLY: INTRA ===")
-        intra_folds, _ = run_intra_subject(features, cfg, root / "intra")
-        print(
-            intra_folds.groupby(["comparison", "classifier"])["accuracy"]
-            .mean()
-            .to_string()
-        )
-
-        print(f"\n=== {feature_set.upper()} ONLY: INTER ===")
-        inter_folds, _ = run_inter_subject(features, cfg, root / "inter")
-        print(
-            inter_folds.groupby(["comparison", "classifier"])["accuracy"]
-            .mean()
-            .to_string()
-        )
-
-    summary = collect_feature_set_summary(results_root, feature_sets=("all", "bp", "coh"))
-    summary_path = results_root / "feature_set_comparison.csv"
-    summary.to_csv(summary_path, index=False, encoding="utf-8-sig")
-
-    print("\n=== COMBINED FEATURE-SET SUMMARY ===")
-    if summary.empty:
-        print("No summary rows found.")
-    else:
-        print(
-            summary.sort_values(["scope", "comparison", "classifier", "feature_set"])
-            .to_string(index=False)
-        )
-    print(f"\nsummary={summary_path}")
+    features = load_features(args.features, args.legacy_manifest)
+    cfg = load_config(args.config)
+    experiments = [{"name": name, "feature_set": name} for name in ("bp", "coh")]
+    matrix, evaluator = prepare_matrix(features, cfg, experiments=experiments, selected=args.feature_sets,
+        scopes=("intra", "inter"), out_root=args.out_root,
+        input_paths=source_inputs({"features": args.features, "config": args.config}, args.legacy_manifest),
+        reference_paths={"poster_baseline": args.results_root}, matrix_config={"experiments": experiments}, resume=args.resume)
+    baseline = _summary(Path(args.results_root), "all")
+    def report(inventory):
+        table = pd.concat([baseline] + [_summary(root, name) for name, root in inventory.items()], ignore_index=True)
+        return {"feature_set_comparison.csv": table.sort_values(["scope", "comparison", "classifier", "feature_set"])}
+    _, report_root = matrix.run(evaluator, report)
+    print(f"report={report_root}")
     return 0
 
 

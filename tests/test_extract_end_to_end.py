@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,7 @@ def _write_session(root: Path):
     raw.to_csv(root / "eeg_raw.csv", index=False, encoding="utf-8-sig")
 
     events = pd.DataFrame([
+        ["s","subj","Session","SessionStart","",0,"",0,1,True,""],
         ["s","subj","Rest1","Rest","",0,"",0,20,True,""],
         ["s","subj","Rest1","Rest","",0,"",5000,20,True,""],
         ["s","subj","Type1","Calculation","Type1",1,"",10000,11,True,""],
@@ -27,6 +29,10 @@ def _write_session(root: Path):
         ["s","subj","Type2","Calculation","Type2",1,"",30000,12,True,""],
         ["s","subj","Type2","Calculation","Type2",2,"",35000,12,True,""],
     ], columns=["session_id","subject_id","stage","phase","task_type","attempt_index","utc_timestamp","elapsed_ms","marker_code","marker_sent","marker_message"])
+    origin = datetime(2026, 11, 9, tzinfo=timezone.utc)
+    def utc(seconds):
+        return (origin + timedelta(seconds=float(seconds))).isoformat()
+    events["utc_timestamp"] = events["elapsed_ms"].map(lambda ms: utc(ms / 1000))
     events.to_csv(root / "events.csv", index=False, encoding="utf-8-sig")
 
     full_trial_cols = [
@@ -38,15 +44,21 @@ def _write_session(root: Path):
     trials = []
     for typ in ["Type1","Type2"]:
         for attempt in [1,2]:
-            trials.append(["s","subj",typ,attempt,1,attempt,100,10,90,90,"Equal","Equal",True,True,attempt,1000,"","","","",""])
+            onset = (10 if typ == "Type1" else 30) + (attempt - 1) * 5
+            trials.append(["s","subj",typ,attempt,1,attempt,100,10,90,90,"Equal","Equal",True,True,attempt,1000,utc(onset),"","","",""])
     pd.DataFrame(trials, columns=full_trial_cols).to_csv(root / "trials.csv", index=False, encoding="utf-8-sig")
 
     rest_cols = ["session_id","subject_id","rest_stage","rest_epoch_index","onset_utc","epoch_seconds","marker_code","marker_sent","marker_message"]
     pd.DataFrame([
-        ["s","subj","Rest1",1,"",5,20,True,""], ["s","subj","Rest1",2,"",5,20,True,""],
-        ["s","subj","Rest2",1,"",5,24,True,""], ["s","subj","Rest2",2,"",5,24,True,""]
+        ["s","subj","Rest1",1,utc(0),5,20,True,""], ["s","subj","Rest1",2,utc(5),5,20,True,""],
+        ["s","subj","Rest2",1,utc(20),5,24,True,""], ["s","subj","Rest2",2,utc(25),5,24,True,""]
     ], columns=rest_cols).to_csv(root / "rest_epochs.csv", index=False, encoding="utf-8-sig")
     (root / "session_info.txt").write_text("Subject: subj\nSampling rate: 500 Hz\n", encoding="utf-8")
+    (root / "session_metadata.json").write_text(json.dumps({
+        "schema_version": "2.0", "cohort_id": "synthetic", "subject_id": "subj", "session_id": "s",
+        "units": "unknown", "reference": "unknown", "protocol_id": "synthetic-hnc",
+        "protocol_version": "1", "channel_order": ["FP1","FP2","F7","F3","Fz","F4","F8","Cz"],
+    }), encoding="utf-8")
 
 
 def test_exact_v015_schema_extracts_168_features(tmp_path):
@@ -62,5 +74,7 @@ def test_exact_v015_schema_extracts_168_features(tmp_path):
     assert len(feature_columns(df, "bp")) == 42
     assert len(feature_columns(df, "coh")) == 126
     assert np.isfinite(df[feature_columns(df, "all")].to_numpy()).all()
-    assert (out / "subj_features.csv").exists()
+    assert len(list(out.glob("subj__*_features.csv"))) == 1
     assert (out / "features_all.csv").exists()
+    assert df["epoch_id"].nunique() == 8
+    assert validation["qa_pass"].all()

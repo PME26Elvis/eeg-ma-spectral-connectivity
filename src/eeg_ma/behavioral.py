@@ -6,13 +6,13 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
-from .io import discover_session_dirs, load_session
+from .qa import preflight_sessions
+from .schema import SCHEMA_VERSION
 
 
 def summarize_behavior(raw_root: str | Path, cfg: Dict) -> pd.DataFrame:
     rows: List[Dict[str, object]] = []
-    for session_dir in discover_session_dirs(raw_root):
-        s = load_session(session_dir, configured_fs=float(cfg["sampling_rate_hz"]))
+    for s in preflight_sessions(raw_root, cfg):
         for task_type in ["Type1", "Type2"]:
             d = s.trials.loc[s.trials["task_type"].astype(str) == task_type].copy()
             if d.empty:
@@ -20,6 +20,11 @@ def summarize_behavior(raw_root: str | Path, cfg: Dict) -> pd.DataFrame:
             correct = d["response_correct"].astype(bool)
             rt = pd.to_numeric(d.loc[correct, "reaction_time_ms"], errors="coerce")
             rows.append({
+                "schema_version": SCHEMA_VERSION,
+                **{key: s.metadata[key] for key in (
+                    "cohort_id", "session_id", "recording_id", "source_sha256",
+                    "protocol_id", "protocol_version", "identity_origin",
+                )},
                 "subject_id": s.subject_id,
                 "task_type": task_type,
                 "attempts": int(len(d)),

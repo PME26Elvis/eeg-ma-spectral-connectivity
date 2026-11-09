@@ -1,5 +1,7 @@
 # E1 / E2 延伸實驗方法
 
+> **執行契約更新（Issues #7／#8）：** 本頁保留歷史實驗與封存目錄的說明。目前新執行一律寫入 `outputs/`，矩陣摘要經由 `CURRENT.json` 指向 `reports/<report_id>/`；歷史特徵需明確 legacy mapping，新 raw 需 schema 2.0 metadata 與共同 QA。請先依 [完整流程與遷移指南](integrity_workflow.md) 選擇新資料或歷史重現路徑。不要將此頁的封存 `results/`／`data/features/` 路徑當成新輸出目的地。
+
 本文件描述 **Poster/Lab baseline 之外** 的兩個延伸實驗。Baseline 的 BP、COH、SFS、LDA / RBF-SVM / KFDA、intra 5-fold 與 inter LOPO 定義不修改；E1 / E2 只新增 feature representation，並沿用相同的 leakage-safe validation framework。
 
 ## 0. Baseline 保持不變
@@ -226,7 +228,7 @@ data/features/extensions/
 ### Step B：跑 E1 / E2 正式分析
 
 ```bash
-python scripts/09_run_extension_experiments.py
+python scripts/09_run_extension_experiments.py --legacy-manifest configs/legacy_discovery_mapping.json
 ```
 
 預設只跑：
@@ -260,7 +262,7 @@ results/extensions/
 若 E1/E2 分開看完後，才想探索兩者同時加入：
 
 ```bash
-python scripts/09_run_extension_experiments.py --include-combined
+python scripts/09_run_extension_experiments.py --legacy-manifest configs/legacy_discovery_mapping.json --include-combined
 ```
 
 這會額外加入：

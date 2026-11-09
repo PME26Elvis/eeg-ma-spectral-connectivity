@@ -9,8 +9,10 @@ from scipy import signal
 
 from .constants import band_items, channel_pairs
 from .extract import META_COLUMNS
-from .io import discover_session_dirs, load_session
 from .preprocess import EpochRecord, extract_protocol_epochs, filter_continuous
+from .qa import preflight_sessions, exclusion_table
+from .schema import (SCHEMA_VERSION, assert_output_available, assert_same_epochs, load_feature_table,
+                     session_output_stem, validate_feature_table, write_feature_outputs)
 
 
 DEFAULT_HEMISPHERIC_PAIRS: Tuple[Tuple[str, str], ...] = (
@@ -22,7 +24,7 @@ DEFAULT_HEMISPHERIC_PAIRS: Tuple[Tuple[str, str], ...] = (
 # Align tables with integer/categorical epoch identity rather than an exact
 # floating-point timestamp equality.  onset_elapsed_s is retained from the
 # already-versioned baseline table and still available for auditing.
-ALIGN_COLUMNS = [c for c in META_COLUMNS if c != "onset_elapsed_s"]
+ALIGN_COLUMNS = ["epoch_id"]
 
 
 def _asymmetry_prefix(mode: str) -> str:
@@ -65,6 +67,7 @@ def add_asymmetry_features(
     so it does not introduce subject/test-label leakage.
     """
     asym_cfg = extension_cfg.get("asymmetry", {})
+    validate_feature_table(baseline_features)
     mode = str(asym_cfg.get("mode", "log_ratio"))
     eps = float(asym_cfg.get("epsilon", 1e-12))
     if eps <= 0:
@@ -170,18 +173,7 @@ def plv_feature_names(
 
 
 def _record_metadata(record: EpochRecord) -> Dict[str, object]:
-    return {
-        "subject_id": record.subject_id,
-        "comparison": record.comparison,
-        "class_label": record.class_label,
-        "class_name": record.class_name,
-        "stage": record.stage,
-        "epoch_index": record.epoch_index,
-        "attempt_index": record.attempt_index,
-        "onset_elapsed_s": record.onset_elapsed_s,
-        "start_sample": record.start_sample,
-        "end_sample": record.end_sample,
-    }
+    return dict(record.metadata)
 
 
 def extract_plv_session(
@@ -241,13 +233,7 @@ def merge_baseline_and_extensions(
     """One-to-one merge that preserves baseline row order and metadata."""
     left = baseline_features.copy()
     right = extension_features.copy()
-    left["subject_id"] = left["subject_id"].astype(str)
-    right["subject_id"] = right["subject_id"].astype(str)
-
-    if left.duplicated(ALIGN_COLUMNS).any():
-        raise ValueError("Baseline feature table 的 epoch alignment key 非唯一")
-    if right.duplicated(ALIGN_COLUMNS).any():
-        raise ValueError("Extension feature table 的 epoch alignment key 非唯一")
+    assert_same_epochs(left, right)
 
     extension_cols = [c for c in right.columns if c not in META_COLUMNS]
     overlap = sorted(set(extension_cols) & set(left.columns))
@@ -275,30 +261,27 @@ def extract_all_extension_features(
     cfg: Dict,
     extension_cfg: Dict,
     out_dir: str | Path,
+    *,
+    legacy_manifest=None,
 ) -> pd.DataFrame:
     """Build versionable E1/E2 feature tables without modifying baseline CSVs."""
     raw_root = Path(raw_root)
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    baseline = pd.read_csv(baseline_feature_path, encoding="utf-8-sig")
-    baseline["subject_id"] = baseline["subject_id"].astype(str)
-    sessions = discover_session_dirs(raw_root)
-    if not sessions:
-        raise FileNotFoundError(f"在 {raw_root} 找不到 eeg_raw.csv")
+    assert_output_available(out_dir)
+    baseline = load_feature_table(baseline_feature_path, legacy_manifest=legacy_manifest)
+    sessions = preflight_sessions(raw_root, cfg)
 
     frames: List[pd.DataFrame] = []
-    seen_subjects = set()
-    for session_dir in sessions:
-        session = load_session(session_dir, configured_fs=float(cfg["sampling_rate_hz"]))
+    output_tables = {}
+    for session in sessions:
         subject = str(session.subject_id)
-        if subject in seen_subjects:
-            raise ValueError(f"同一 subject_id 出現多個 raw session: {subject}")
-        seen_subjects.add(subject)
-
-        base_subject = baseline.loc[baseline["subject_id"] == subject].copy()
+        meta = session.metadata
+        mask = np.ones(len(baseline), dtype=bool)
+        for key in ("cohort_id", "subject_id", "session_id", "recording_id"):
+            mask &= baseline[key].eq(meta[key]).to_numpy()
+        base_subject = baseline.loc[mask].copy()
         if base_subject.empty:
-            raise ValueError(f"Baseline feature table 找不到 subject_id={subject}")
+            raise ValueError(f"Baseline feature table has no exact raw session identity for {subject}; re-extract a v2 baseline before raw extensions")
 
         asym = add_asymmetry_features(base_subject, cfg, extension_cfg)
 
@@ -306,30 +289,12 @@ def extract_all_extension_features(
         baseline_preprocessed = filter_continuous(raw_x, session.sampling_rate_hz, cfg)
         plv = extract_plv_session(session, baseline_preprocessed, cfg, extension_cfg)
 
-        plv_cols = [c for c in plv.columns if c.startswith("PLV__")]
-        asym["__row_order"] = np.arange(len(asym))
-        ext = asym.merge(
-            plv[ALIGN_COLUMNS + plv_cols],
-            on=ALIGN_COLUMNS,
-            how="left",
-            validate="one_to_one",
-        )
-        ext = ext.sort_values("__row_order").drop(columns="__row_order").reset_index(drop=True)
-        if ext.isna().any().any():
-            raise ValueError(f"{subject}: extension features 對齊後出現缺值")
-        if len(ext) != len(base_subject):
-            raise ValueError(f"{subject}: extension rows={len(ext)}, baseline rows={len(base_subject)}")
-
-        safe_subject = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in subject).strip("_") or "subject"
-        ext.to_csv(out_dir / f"{safe_subject}_extensions.csv", index=False, encoding="utf-8-sig")
+        ext = merge_baseline_and_extensions(asym, plv)
+        output_tables[f"{session_output_stem(meta)}_extensions.csv"] = ext
         frames.append(ext)
 
-    missing_raw = sorted(set(baseline["subject_id"].unique()) - seen_subjects)
-    if missing_raw:
-        raise ValueError(f"Baseline 中有受試者缺少 raw session: {missing_raw}")
-
     combined = pd.concat(frames, ignore_index=True)
-    combined.to_csv(out_dir / "features_extensions.csv", index=False, encoding="utf-8-sig")
+    assert_same_epochs(baseline, combined)
 
     counts = {
         "n_rows": int(len(combined)),
@@ -337,5 +302,14 @@ def extract_all_extension_features(
         "asymmetry_features": int(sum(c.startswith("ASYM_") for c in combined.columns)),
         "plv_features": int(sum(c.startswith("PLV__") for c in combined.columns)),
     }
-    pd.DataFrame([counts]).to_csv(out_dir / "extension_manifest.csv", index=False, encoding="utf-8-sig")
+    output_tables.update({"features_extensions.csv": combined, "extension_manifest.csv": pd.DataFrame([counts]),
+                          "raw_validation.csv": pd.DataFrame([s.qa_report.as_dict() for s in sessions]),
+                          "excluded_trials.csv": exclusion_table(sessions)})
+    write_feature_outputs(out_dir, output_tables, {
+        "schema_version": SCHEMA_VERSION, "feature_family": "asymmetry_plv", "config": cfg,
+        "extension_config": extension_cfg, "n_rows": len(combined),
+        "baseline_feature_sha256": baseline.attrs["source_feature_sha256"],
+        "sessions": [{"metadata": s.metadata, "source_hashes": s.source_hashes,
+                      "qa": s.qa_report.as_dict()} for s in sessions],
+    })
     return combined

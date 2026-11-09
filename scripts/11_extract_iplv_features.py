@@ -15,10 +15,11 @@ def main() -> int:
         description="Extract iPLV features for the final zero-lag robustness check"
     )
     p.add_argument("--raw-root", default="data/raw")
-    p.add_argument("--baseline-features", default="data/features/features_all.csv")
+    p.add_argument("--baseline-features", default="outputs/features/baseline/features_all.csv")
+    p.add_argument("--legacy-manifest", default=None, help="Explicit identity mapping for historical feature CSVs; raw extraction requires matching raw provenance")
     p.add_argument("--config", default="configs/lab_replication.json")
     p.add_argument("--validation-config", default="configs/final_validation.json")
-    p.add_argument("--out-dir", default="data/features/final_validation")
+    p.add_argument("--out-dir", default="outputs/features/final_validation")
     args = p.parse_args()
 
     cfg = load_config(args.config)
@@ -31,6 +32,7 @@ def main() -> int:
         cfg=cfg,
         out_dir=args.out_dir,
         filter_order=filter_order,
+        legacy_manifest=args.legacy_manifest,
     )
 
     cols = [c for c in frame.columns if c.startswith("IPLV__")]

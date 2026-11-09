@@ -1,0 +1,66 @@
+{
+  "schema_version": "legacy-mapping-1",
+  "description": "Explicit identity namespace for the frozen discovery feature tables. These synthetic legacy session/recording IDs are declarations for joining historical rows, not recovered acquisition identities. Raw data have not been revalidated.",
+  "feature_inputs": {
+    "data/features/features_all.csv": "5ad6ce6f6d2dedfc64205f670e14d934e6e7133bac9592760c5b013c6fd340f1",
+    "data/features/extensions/features_extensions.csv": "0040da938a8e694cec0a6d9a48955fec63c674c4f68de5bb4ef8c2be07510141",
+    "data/features/final_validation/features_iplv.csv": "502649a5e9901d490eaa176786a35b635433f4c113b7240409daf93f680b8a81"
+  },
+  "subjects": {
+    "irene": {
+      "cohort_id": "discovery-legacy",
+      "session_id": "legacy-single-session",
+      "recording_id": "legacy-unverified-recording-01",
+      "source_sha256": "unknown",
+      "units": "unknown",
+      "reference": "unknown",
+      "protocol_id": "legacy-rest-task",
+      "protocol_version": "unknown",
+      "channel_order": "unknown"
+    },
+    "jh": {
+      "cohort_id": "discovery-legacy",
+      "session_id": "legacy-single-session",
+      "recording_id": "legacy-unverified-recording-02",
+      "source_sha256": "unknown",
+      "units": "unknown",
+      "reference": "unknown",
+      "protocol_id": "legacy-rest-task",
+      "protocol_version": "unknown",
+      "channel_order": "unknown"
+    },
+    "lin": {
+      "cohort_id": "discovery-legacy",
+      "session_id": "legacy-single-session",
+      "recording_id": "legacy-unverified-recording-03",
+      "source_sha256": "unknown",
+      "units": "unknown",
+      "reference": "unknown",
+      "protocol_id": "legacy-rest-task",
+      "protocol_version": "unknown",
+      "channel_order": "unknown"
+    },
+    "pftest": {
+      "cohort_id": "discovery-legacy",
+      "session_id": "legacy-single-session",
+      "recording_id": "legacy-unverified-recording-04",
+      "source_sha256": "unknown",
+      "units": "unknown",
+      "reference": "unknown",
+      "protocol_id": "legacy-rest-task",
+      "protocol_version": "unknown",
+      "channel_order": "unknown"
+    },
+    "yen": {
+      "cohort_id": "discovery-legacy",
+      "session_id": "legacy-single-session",
+      "recording_id": "legacy-unverified-recording-05",
+      "source_sha256": "unknown",
+      "units": "unknown",
+      "reference": "unknown",
+      "protocol_id": "legacy-rest-task",
+      "protocol_version": "unknown",
+      "channel_order": "unknown"
+    }
+  }
+}
