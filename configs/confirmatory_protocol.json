@@ -1,0 +1,259 @@
+{
+  "schema_version": "eeg-confirmatory-protocol-1",
+  "protocol_id": "eeg-ma-confirmatory-study",
+  "protocol_version": "1.0",
+  "status": "draft",
+  "study": {
+    "mode": "confirmatory",
+    "cohort_id": "confirmatory-a-v1",
+    "outcomes_accessed": false,
+    "registration": {
+      "status": "not_registered"
+    },
+    "population": "Independent consenting adults (18+) able to follow the task instructions and numeric response procedure; all development or previously exposed subjects excluded.",
+    "sampling_unit": "independent_participant",
+    "site_policy": "one_verified_acquisition_setup",
+    "primary_estimand": "fixed_development_model_mean_BA_among_QA_evaluable_new_participants",
+    "expanded_lopo_estimand": "separate_descriptive_retrained_learning_procedure",
+    "minimum_age_years": 18,
+    "maximum_age_years": null
+  },
+  "acquisition": {
+    "sampling_rate_hz": 500,
+    "epoch_seconds": 5.0,
+    "raw_channels": [
+      "FP1",
+      "FP2",
+      "F7",
+      "F3",
+      "Fz",
+      "F4",
+      "F8",
+      "Cz"
+    ],
+    "analysis_channels": [
+      "FP1",
+      "FP2",
+      "F7",
+      "F3",
+      "Fz",
+      "F4",
+      "F8"
+    ],
+    "units": null,
+    "reference": null,
+    "ground": null,
+    "device": null,
+    "event_clock": "session_start_elapsed_ms",
+    "marker_policy": "hardware_required",
+    "verified": false,
+    "evidence": null,
+    "historical_alignment_verified": false
+  },
+  "protocols": {
+    "A": {
+      "protocol_id": "eeg-ma-A-capped-v1",
+      "role": "primary",
+      "enabled": true,
+      "order": [
+        "Rest1",
+        "Type1",
+        "Rest2",
+        "Type2"
+      ],
+      "rest_seconds": 150,
+      "target_correct_trials_per_task": 30,
+      "calculation_seconds": 5.0,
+      "mini_chain_length": 4,
+      "task_types": {
+        "Type1": "three_digit_subtraction_two_borrows",
+        "Type2": "two_digit_subtraction_one_borrow"
+      },
+      "primary_comparison": "rest1_vs_type1",
+      "secondary_comparison": "rest2_vs_type2",
+      "session_selection": "first_QA_valid_A_session",
+      "participant_weight": 1.0,
+      "primary_requires_type2_completion": false,
+      "interpretation": "historical_task_aligned_capped_protocol_discrimination",
+      "practice_policy": "instructions_and_response_interface_only_no_scored_task_practice",
+      "timing_scope": "formal_session_start_to_session_end_excludes_equipment_setup"
+    },
+    "B": {
+      "protocol_id": "eeg-ma-B-control-v1",
+      "role": "next_study",
+      "enabled": false,
+      "session_selection": "separate_protocol_lock_required_before_collection",
+      "session_order": "A_before_B_if_the_same_participants_are_reused",
+      "primary_weight": 0.0,
+      "independent_N_increment_for_repeat_subjects": 0,
+      "proposed_blocks": 6,
+      "epochs_per_block": 10,
+      "washout_seconds": 30,
+      "balanced_sequences": [
+        [
+          "RestControl",
+          "Type1",
+          "RestControl",
+          "Type1",
+          "RestControl",
+          "Type1"
+        ],
+        [
+          "Type1",
+          "RestControl",
+          "Type1",
+          "RestControl",
+          "Type1",
+          "RestControl"
+        ]
+      ],
+      "allocation": "balanced_random_assignment_before_acquisition",
+      "visual_response_control": "matched_display_duration_and_numeric_response_period; nonarithmetic copy control versus arithmetic",
+      "activation_rule": "new_study_lock_with_acquisition_feasibility_evidence; never_promote_B_after_A_results"
+    }
+  },
+  "eligibility": {
+    "correct_only": true,
+    "analysis_eligible_required": true,
+    "min_epochs_per_class": 20,
+    "max_epochs_per_class": 30,
+    "planned_rest_epochs_per_block": 30,
+    "planned_rest_seconds_per_block": 150,
+    "max_attempts_per_task": 45,
+    "max_session_seconds": 1800,
+    "max_replacement_sessions": 1,
+    "technical_failure_reasons": [
+      "DEVICE_DISCONNECT",
+      "SAMPLE_INDEX",
+      "SAMPLE_CLOCK",
+      "NONFINITE_SIGNAL",
+      "FLAT_CHANNEL",
+      "TASK_EVENT_TRIAL_SET",
+      "SESSION_START",
+      "MARKER_NOT_SENT"
+    ],
+    "replacement_window_days": 7,
+    "replacement_policy": "first_session_fails_prespecified_technical_QA_only; never_for_accuracy_or_correctness_shortfall",
+    "missing_policy": "retain_in_flow_and_exclude_only_unevaluable_endpoint_no_chance_imputation",
+    "primary_independent_of_secondary_completion": true,
+    "amplitude_rejection": "disabled",
+    "target_fit_ICA_ASR": "disabled",
+    "channel_interpolation": "disabled",
+    "qc": {
+      "max_sample_gaps": 0,
+      "max_nonfinite_values": 0,
+      "flat_std_epsilon": 1e-15,
+      "sample_period_tolerance_s": 2e-06,
+      "clock_tolerance_s": 0.005,
+      "sampling_rate_tolerance_hz": 1e-06,
+      "require_all_raw_channels": true,
+      "structural_QA_failure": "whole_recording_rejected"
+    },
+    "correct_formal_trial_policy": "all_correct_formal_trials_eligible_after_whole_recording_QA"
+  },
+  "recruitment": {
+    "target_evaluable": 60,
+    "recruitment_cap": 94,
+    "stop_rule": "first_of_target_evaluable_or_unique_participant_cap",
+    "score_based_extension_allowed": false,
+    "target_half_width": 0.08,
+    "completion_assurance": 0.95,
+    "minimum_retention_for_planning": 0.7125,
+    "cap_shortfall_policy": "stop_and_report_precision_shortfall_without_posthoc_extension",
+    "inflight_policy": "finish_already_recruited_before_outcomes_include_all_eligible",
+    "precision_coverage_floor": 0.9,
+    "precision_width_probability_floor": 0.9
+  },
+  "endpoints": {
+    "primary": "participant_macro_balanced_accuracy_A_rest1_vs_type1",
+    "primary_model": "alpha_plv_sfs_lda",
+    "key_secondary": "participant_paired_delta_vs_bp_coh_sfs_lda",
+    "reference_model": "bp_coh_sfs_lda",
+    "chance_level": 0.5,
+    "delta_min": 0.05,
+    "absolute_threshold": 0.65,
+    "threshold_interpretation": "prospective_research_targets_not_demonstrated_BCI_usability",
+    "secondary_policy": "descriptive_nominal_CIs_no_confirmatory_secondary_claims",
+    "secondary_family": [
+      "paired_delta",
+      "Type2",
+      "expanded_nested_LOPO"
+    ],
+    "multiple_comparisons": "one_confirmatory_primary_secondary_descriptive_only",
+    "weighting": "equal_participant_weights_no_epoch_or_session_pseudoreplication"
+  },
+  "inference": {
+    "method": "participant_percentile_bootstrap",
+    "confidence": 0.95,
+    "resamples": 10000,
+    "seed": 20261109,
+    "unit": "participant",
+    "paired_resampling": "identical_participant_indices_for_both_models",
+    "tail": "two_sided",
+    "degenerate_policy": "report_degenerate_CI_and_no_precision_adequacy_claim",
+    "sampling_assumption": "independent_participant_clusters; revise_before_collection_if_cluster_recruitment"
+  },
+  "freeze": {
+    "artifacts": {
+      "development_manifest": {
+        "path": "confirmatory_development_manifest.json",
+        "sha256": "c13733e2775c6ec2716393fe400a2d80498f022905e3b8cbc721ccf0da2b4a5f"
+      },
+      "development_data_manifest": {
+        "path": "confirmatory_development_data.json",
+        "sha256": "2a63546ad12098959e011ac040275d06f8a4b82c71176a833fb1c50ae86c7e9d"
+      },
+      "analysis_config": {
+        "path": "confirmatory_analysis.json",
+        "sha256": "e0583d74352d21288614c19cfe58436228be10282644475f1b4ef5088a5c0ee2"
+      },
+      "feature_schema": {
+        "path": "confirmatory_feature_schema.json",
+        "sha256": "1d092ce850f250bfba0f97c8a1c616ffc383f255a52404f71edc6587a0a23369"
+      },
+      "environment": {
+        "path": null,
+        "sha256": null
+      },
+      "primary_model": {
+        "path": null,
+        "sha256": null
+      },
+      "reference_model": {
+        "path": null,
+        "sha256": null
+      },
+      "primary_training_manifest": {
+        "path": null,
+        "sha256": null
+      },
+      "reference_training_manifest": {
+        "path": null,
+        "sha256": null
+      },
+      "precision_report": {
+        "path": "../docs/precision/precision_report.json",
+        "sha256": "62761a840688fe13471f5851dca7d9eeb3c3d2286fdf936f6984be293d42035a"
+      },
+      "acquisition_evidence": {
+        "path": null,
+        "sha256": null
+      }
+    },
+    "model_training_scope": "development_only",
+    "expanded_development_rule": "freeze_new_models_and_reserve_new_unexposed_holdout",
+    "source_code_policy": "capture_commit_and_working_source_fingerprint_at_lock"
+  },
+  "approval": {
+    "responsible_person": null,
+    "approved_at": null,
+    "ethics_status": null,
+    "ethics_reference": null,
+    "resource_commitment_confirmed": false
+  },
+  "amendment_policy": {
+    "before_outcomes": "new_version_linked_to_prior_lock_and_no_silent_overwrite",
+    "after_outcomes_sensitive_change": "old_test_subjects_exposed_new_untouched_holdout_required",
+    "pilot_downgrade": "only_before_outcomes_with_new_mode_and_new_lock; preserve_original_plan"
+  }
+}

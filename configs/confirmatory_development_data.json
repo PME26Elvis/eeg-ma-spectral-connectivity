@@ -1,0 +1,21 @@
+{
+  "schema_version": "eeg-development-data-1",
+  "description": "Declared frozen discovery feature inputs for development only. Hashes identify present feature bytes; original acquisition provenance remains legacy_unverified.",
+  "sources": [
+    {
+      "name": "baseline",
+      "path": "../data/features/features_all.csv",
+      "sha256": "5ad6ce6f6d2dedfc64205f670e14d934e6e7133bac9592760c5b013c6fd340f1"
+    },
+    {
+      "name": "extensions",
+      "path": "../data/features/extensions/features_extensions.csv",
+      "sha256": "0040da938a8e694cec0a6d9a48955fec63c674c4f68de5bb4ef8c2be07510141"
+    }
+  ],
+  "legacy_mapping": {
+    "path": "legacy_discovery_mapping.json",
+    "sha256": "2fc51967202222607a6daced5295710ce35f086be1ae2482c145e544cced6ca5"
+  },
+  "historical_raw_sha256": "unknown"
+}

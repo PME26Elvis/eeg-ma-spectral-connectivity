@@ -1,0 +1,20 @@
+{
+  "caveat": "This is documented simulation-method development before cohort acquisition, not an independently preregistered validation study. Nominal and Monte Carlo claims remain restricted to the declared assumptions.",
+  "cohort_data_used": false,
+  "config_changes": {
+    "screening_replicates": {
+      "after": 1000,
+      "before": 400
+    }
+  },
+  "engine_changes": "Only validate_precision_report return metadata added half_width_target, design_retention_floor, coverage_floor and width_probability_floor. Simulation and CI algorithms were unchanged. The exact initial engine snapshot is retained and matches the initial report engine hash.",
+  "final_engine_sha256": "8bf8ecf23aa0fc19c584a31da2dc51d2c19319abda4909ed6a4575c1cbc1aa78",
+  "final_report": "../precision_report.json",
+  "final_report_sha256": "1db7c5e29481e172ed10cdfa075679a143835723e02d2a018e1c3add7c4e16b5",
+  "initial_engine_sha256": "3b74d148473a4596ecebacd74cecd54d88f2aba096f0913e96381b9664f168b4",
+  "initial_engine_snapshot": "initial_precision_engine.py.txt",
+  "initial_report": "initial_screening_report.json",
+  "initial_report_sha256": "6d2ad166a8ccf63b61d90cb28b1e858a92b2287595e9e0c60c6060e4d0c749f3",
+  "reason": "Initial 400-study screening certified no candidate. Width criteria passed at N>=60, but at least one pointwise coverage Wilson lower bound was below the unchanged 0.90 floor. Increase screening Monte Carlo precision once to 1000 studies; preserve all prior cells. No alternate seed, threshold relaxation, outcome-driven tuning or additional increase was used.",
+  "schema_version": "eeg-precision-development-history-1"
+}

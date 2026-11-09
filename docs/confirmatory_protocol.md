@@ -1,232 +1,221 @@
-# 獨立受試者驗證協定草案
+# 獨立受試者驗證協定 v1：設計已定義，正式收案仍受 gate 管理
 
-**狀態：DRAFT；2026-11-09。** 本文件是可實作的下一階段設計，尚未完成註冊、模型凍結或新受試者收案。文件合併不等於這些工作已完成。
+**版本 1.0；2026-11-09；狀態 DRAFT／尚未註冊。** #9 完成可執行的協定、樣本數證據、收案稽核與鎖定／修訂機制。實際設備驗證、研究核准、固定模型與環境證據尚未齊備，不能把文件合併稱為已鎖定、已註冊或已開始收案。
 
-研究方向見 [roadmap](roadmap.md)；本次程式與資料稽核見 [2026-11-09 audit](roadmap_audit_2026-11-09.md)。
-歷史方法以 [`method_definition.md`](method_definition.md) 為準；已完成的探索結果見 [`final_results_summary.md`](final_results_summary.md)。
+機器可讀的唯一決策來源是 [`confirmatory_protocol.json`](../configs/confirmatory_protocol.json)；操作見 [protocol gate](protocol_gate.md)，數值證據見 [precision report](precision/README.md)。歷史方法與結果仍分別以 [`method_definition.md`](method_definition.md)、[`final_results_summary.md`](final_results_summary.md) 為準。
 
-## 1. 目的與既有停止規則
+已保存目前真實 draft 的 [readiness 檢查](protocol_readiness.json)，包含 protocol／validator hashes、已存在檔案的 hash 檢查及未齊備欄位。它是 blocked 狀態的可重查證據，不是正式 study lock。
 
-主要問題：**使用歷史五位受試者訓練並固定的 α-PLV 模型，能否辨識獨立新受試者在指定實驗流程中的 Rest 與 Type1 狀態？**
+## 1. 問題、估計對象與研究邊界
 
-本研究先確認分類結果能否外推到新受試者；生理來源需要另外控制的實驗。
-歷史資料的 74.1% 是三個分類器結果的描述平均，並非單一可部署模型，也不是獨立確認的目標值；nested CV 不消除跨實驗選擇造成的偏差。[1]
-所有舊五人的頻帶與特徵探索已完成；遵守 [`final_validation.md`](final_validation.md) 的 stop rule。
-本協定不授權在舊五人上重新排列特徵、挑選新分類器或進行大量搜尋。
-若發現方法錯誤，保存原結果、修正原因與新版本，不把修正後的探索結果改稱獨立驗證。
+主要問題：**只用歷史 development participants 訓練後固定的 α-PLV＋SFS＋LDA，對獨立新受試者在 A 流程下的 Rest1／Type1 分類表現如何？** Primary 是符合預定 QA、完成可分析資料的新受試者之平均 balanced accuracy；它以正確心算作答為條件，並不估計所有招募者或所有嘗試的表現。
 
-## 2. Acquisition 決策：先完成 A，再解答 B
+歷史五人的 74.1% 是三個分類器的描述平均，不能當成這個固定 LDA 的預期表現或新 cohort 成功保證。原五人的 representation exploration 已停止，本工作不新增其頻帶、特徵或模型搜尋。有限資料上的方法選擇與 nested CV 是不同層次的問題，後者不會消除跨實驗選擇偏差。[1]
 
-| 協定 | 角色與設計 | 可回答的問題 |
+| 分析 | 資料與訓練邊界 | 可估計的對象 |
 |---|---|---|
-| **A：歷史條件對齊的新 cohort** | Primary；沿用 Rest1 → Type1 → Rest2 → Type2、5 秒心算、相同通道與可核對的量測條件 | 固定模型是否能辨識新人的相同實驗流程 |
-| **B：受控的任務流程** | 預先定義的 secondary session 或下一個 study；重複 blocks、平衡順序、匹配視覺與作答條件 | 分類訊息是否能在減少流程混淆後保留 |
+| 固定模型外部測試 | development-only fit 一次；新 cohort 只 predict | 這兩個固定 fitted models 對 QA-evaluable 新人的表現；A primary |
+| 擴充樣本 nested LOPO | 合併可用 development 資料，每折只在 training subjects 選特徵與 fit | 在不同 training size 下重新學習的流程；獨立、描述性 secondary |
+| calibration／alignment | 另定可存取的新受試者校正資料 | 具有該校正條件的表現；不併入 zero-calibration primary |
 
-A 沿用 150 秒 Rest 分為 30 個 epochs、每種任務累積 30 題答對的歷史取樣規則。
-收案前須另訂可接受的最長 session／最多嘗試數及無法完成時的處理；不能無限延長直到符合資料數。
-A 仍存在 fixed-order、time-on-task、視覺與 block 差異；即使結果良好，也只能支持 **protocol discrimination**。[2]
-不能由 A 單獨確認純心算負荷、神經功能連結，或宣稱已排除疲勞與眼動。
+所有 cohort／session 共用穩定、literal `subject_id`。重新錄製或另做 B 不會創造新的人；development／test 以人排除交集。若擴充 development 再 fit，需新模型、新 freeze，以及完全未見的 holdout。
 
-B 必須在資料檢視前決定 block 數、順序分配、washout、視覺控制與分析方式。
-只交換 Type1／Type2 順序不能完整解決 Rest／MA 的時間位置和視覺差異。
-B 若由同一批人完成，預設先完成 A，再於固定間隔後做 B，避免 B 的先前練習改變 A 的主要驗證條件；同人兩個 session 仍只算一位受試者。
-B 內部的 condition/block 順序另做平衡；若研究問題要求 A／B session 也 counterbalance，需另訂 study 並承認 acquisition-history 差異。
-B 使用不同 `protocol_id`，單獨報告；不把 A／B 合併成較高分數，不因 A 失敗改稱 B 是 primary。
-若量測條件或任務有實質改變，明確標為 protocol transport，不能稱完全相同條件的 replication。
+## 2. A 與 B 的角色、順序及權重
 
-## 3. Development、test 與估計對象
-
-| 分析 | 訓練／測試方式 | Estimand |
+| 決策 | A：`eeg-ma-A-capped-v1` | B：`eeg-ma-B-control-v1` |
 |---|---|---|
-| **固定模型外部測試** | 舊五人 development；一次 fit 後，所有新受試者只 predict | 這個固定模型對新 cohort 的表現；primary |
-| **擴充樣本 nested LOPO** | 新舊資料合併，每折重新在 training subjects 內選特徵與 fit | 固定學習流程以 N−1 人訓練時的跨人表現；secondary |
-| **校正／alignment** | 使用新受試者事先指定的 calibration 資料 | 具有該資料存取條件的表現；獨立實驗 |
+| 角色 | 唯一 primary，啟用 | 下一個 study，`enabled=false` |
+| 主要流程 | Rest1 → Type1 → Rest2 → Type2 | 草案為 6 blocks、每 block 10 epochs、30 秒 washout |
+| 任務 | Type1：三位數、兩次借位；Type2：兩位數、一次借位；mini-chain 4 | arithmetic 與非心算 copy control 匹配顯示、數字輸入與反應時間 |
+| 順序 | 固定歷史任務順序；A 先於同人的 B | 收案前平衡隨機分派 RestControl／Type1 起始、交替的兩種序列 |
+| session 選取 | 第一個通過結構 QA 的 A session；只允許指定技術 replacement | 必須另完成 feasibility 與新協定 lock 才能收集 |
+| primary 權重 | 每人 1 | 0；同人的 B 對獨立 N 增量為 0 |
 
-LOPO 會改變 training size 及每折模型，不能替代固定模型外部測試，也不能用來補救其失敗。
-若新增 development participants 再 fit，必須另留完全未見的 confirmatory cohort，並重新記錄 freeze。
-同一人的所有 sessions 共享 `subject_id`；任何 train／test 邊界都以人為單位排除交集。
-禁止使用新 test cohort 的標籤、分布或最佳結果調整 primary 模型。
+A 保留每段 Rest 150 秒／30 個 5 秒 epochs，每個 task 目標 30 題正確，但增加明確嘗試與時間上限。因此稱為 **歷史任務對齊、具有上限的驗證**，不稱完全相同條件 replication。設備／reference 等對齊尚須實際核對。
 
-## 4. Primary 模型的完整定義
+只做 instructions／response interface 說明，不加入可評分的心算練習。A 仍含 fixed order、time-on-task、視覺與 block 差異；結果只支持該 acquisition protocol 的狀態辨識。跨人測試不會自行排除這些混淆。[2] B 的完整 acquisition feasibility 尚未完成，不得在 A 不理想後啟動 B、改稱 primary 或挑 A／B 較好者。
 
-| 環節 | 固定決策 |
+## 3. 固定模型與 ordered feature contract
+
+| 環節 | 前瞻決策 |
 |---|---|
-| 比較 | A 的 Rest1 vs Type1；Type2 為 secondary |
-| 通道 | FP1、FP2、F7、F3、Fz、F4、F8；Cz 不進 primary 特徵 |
-| Epoch | 500 Hz、5 秒；保留歷史事件對齊定義 |
-| 前處理 | 四階 Butterworth 2–50 Hz、`sosfiltfilt`；預設無 notch |
-| 相位特徵 | 連續訊號再經四階 Butterworth 8–13 Hz、`sosfiltfilt`、Hilbert phase；21 組 PLV pairs |
-| SFS | 只在 development subjects 內使用 LOGO；LDA inner-CV accuracy 準則 |
-| SFS 停止 | `max_features=null`、`min_improvement=0`；第一個特徵接受，其後無嚴格改善即停止；維持 `1e-15` 容差與索引 tie-breaking |
-| 標準化 | SFS 各 inner fold 只 fit 該 training split；最終 selected subset 只在完整 development fit scaler |
-| 分類器 | LDA：`solver=svd`、`shrinkage=None`、`priors=None`、`tol=1e-4`；完整參數與套件版本寫入 artifact |
-| Prediction | 使用固定 feature order、scaler、selected indices、class mapping 與 LDA 決策規則 |
+| Primary | A Rest1 vs Type1；α-PLV 21 pairs → development-only SFS → StandardScaler＋LDA |
+| Reference | 同一 development cohort 的 42 BP＋126 COH → 獨立 development-only SFS → StandardScaler＋LDA |
+| 通道 | raw：FP1、FP2、F7、F3、Fz、F4、F8、Cz；analysis 排除 Cz，保留前 7 個 |
+| 時間與前處理 | 500 Hz、5 秒；四階 Butterworth 2–50 Hz、`sosfiltfilt`；無 notch |
+| 相位特徵 | continuous signal 再經四階 8–13 Hz `sosfiltfilt`、Hilbert phase，21 組 PLV |
+| Selector | development-only LOGO；inner accuracy；`max_features=null`、`min_improvement=0`，沿用 `1e-15` 改善容差與索引 tie-breaking |
+| Scaler | SFS inner fold 只 fit 該 training split；最終 subset 只在完整 development fit |
+| LDA | `solver=svd`、`shrinkage=None`、`priors=None`、`tol=1e-4`；完整 fitted 參數、類別與版本入 manifest |
+| Test 輸入 | frozen feature order、selected indices、class mapping；不得 target-fit scaler、SFS、classifier、EA、ICA 或 ASR |
 
-LDA 被指定為 primary 是為減少調參自由度；不宣稱它比歷史 0.747 的 SVM 或 0.733 的 KFDA 更好。
-SFS 在 development 全體內重新完成一次，再 fit 最終模型；不以外層 LOPO 的選取次數人工拼出「最佳 pairs」。
-Primary 維持現有 SFS accuracy 準則；reporting 的 balanced accuracy 不代表偷偷更換 selector objective。
-SVM／KFDA 若列 secondary，必須在 test 資料可用前鎖定其範圍，不能由 test 最佳結果晉升 primary。
+選 LDA 是減少可選流程，不宣稱它是舊資料的最佳分類器。不得用 LOPO 選取頻率人工拼出最佳 pairs。Primary 的 BA reporting 不改變 SFS 的 inner accuracy objective。
 
-此流程是 **correct-only、offline、zero-calibration** 的分類研究。
-心算主要分析限 `analysis_eligible=true` 且 `response_correct=true`；這不代表所有嘗試或即時使用的準確率。
-固定的 continuous filtering／Hilbert 不會學習 test labels，但使用整段記錄，不能宣稱 causal online inference。
-禁止在新受試者資料上重新估 scaler、SFS、classifier 或 EA；全段 target-fit ICA 也需另列資料使用條件。
+實際 feature order 已封存在 [`confirmatory_feature_schema.json`](../configs/confirmatory_feature_schema.json)。development manifest 綁定目前檔案的 SHA-256、既有 subject IDs 及 legacy mapping；未知 historical raw lineage 保留 `unknown`，不補造 acquisition provenance。
 
-## 5. Primary 與 secondary endpoints
+本研究為 **correct-only、offline、zero-calibration**。Continuous filtering／Hilbert 使用整段 recording，不能稱 causal online inference。不得把 class、stage、檔名、correctness 或其他 label metadata 餵入模型；事件／correctness 只供預定 eligibility 與評分。
 
-對可評估受試者 i，先計算其 Rest 與 MA 的 recall，再定義：
+## 4. Acquisition 與數值 QA
+
+正式 lock 要求有實際 device、signal units、reference、ground、channel order、Fs、clock／hardware marker 驗證證據；不得由通道名或歷史 CSV 猜測。核准人、核准時間、研究倫理狀態與資源承諾也須真實填入。
+
+| 項目 | v1 決策 |
+|---|---|
+| Sample continuity | index 從 0 連續；sample gaps 容許 0 |
+| Finite signal | nonfinite 值容許 0；8 raw channels 必須全數存在且同序 |
+| Flat channel | raw-channel SD ≤ `1e-15` 判為 flat；只是既有數值 sanity check，不是生理 artifact 門檻 |
+| Sampling rate | 500 Hz，差異容差 `1e-6` Hz |
+| Raw sample period | 0.002 秒，絕對容差 `2e-6` 秒 |
+| Event／UTC alignment | SessionStart elapsed origin；UTC 必填；clock tolerance 0.005 秒 |
+| Hardware marker | `hardware_required`，不得靜默改用 software timing |
+| Structural failure | 整個 recording 拒絕，不做事後 segment salvage |
+| Amplitude／artifact 操作 | amplitude rejection、target-fit ICA／ASR、channel interpolation 均 disabled |
+
+不憑沒有 units／設備依據的數字添加振幅門檻。MNE 的範例是方法說明，並不替本設備選出已驗證的 threshold。[3] 這個決定保留歷史流程對齊，代價是不能宣稱已去除眼動、肌電或其他生理 artifact；量測控制另屬 B／後續研究。
+
+[`confirmatory_analysis.json`](../configs/confirmatory_analysis.json) 保留歷史數值方法，但將通用 raw QA 的 `expected_epochs_per_class` 設為 `null`，讓合法的 20–29 題任務結果能通過結構檢查。**這不取消 cohort policy**：正式流程必須依本文件第 5 節稽核數量與停止原因，再進入固定模型分析。歷史 `lab_replication.json` 不變。
+
+## 5. Eligibility、任務上限與 replacement
+
+| 決策 | 固定值／規則 |
+|---|---|
+| 每 task 目標 | 30 題正確；每次計算 5 秒 |
+| 每 task 最多嘗試 | 45 次；無論答對率，不得超過 |
+| Session 最長 | 1,800 秒，從正式開始至結束，排除設備準備 |
+| Primary 最低有效量 | Type1 ≥20 題，且 Rest1 完整 150 秒／30 epochs；上限每類 30 |
+| Correct-only | 通過整段 QA 後，所有正式正確 trials 都須 `analysis_eligible=true`；禁止選擇性 epoch mask |
+| Partial task | 20–29 題只在達到 45 次嘗試或 1,800 秒上限時保留；不能任意提早停在高分片段 |
+| Replacement | 最多 1 次，前次開始起 7 天內；只因已列舉的技術 QA failure |
+| Session 選取 | 第一個通過結構 QA 的 A session；答對數不足也不能跳過它換一場 |
+| Missing endpoint | 缺類／不足最低量 ⇒ 該 endpoint 不可評估；留在 flow，不能補 0.5 |
+
+Minimum 20 不授權把 Rest1 改為 100 秒。因未啟用逐 epoch artifact rejection，通過結構 QA 的 acquired rest epochs 必須全部 eligible。Task 的 raw correct 數與 eligible correct 數亦須相等。
+
+可 replacement 的 error codes 僅為 `DEVICE_DISCONNECT`、`SAMPLE_INDEX`、`SAMPLE_CLOCK`、`NONFINITE_SIGNAL`、`FLAT_CHANNEL`、`TASK_EVENT_TRIAL_SET`、`SESSION_START`、`MARKER_NOT_SENT`。其他 invalid recording 仍可排除，但不能自行取得重錄資格。QA 已通過、答對數不足、模型 accuracy 低或撤回後均不得重錄。Technical replacement 與原 session 同一 subject，不新增 N。
+
+Type2 **未完成或答對數不足**，在 recording 仍通過整段結構 QA 時不會刪掉有效的 Type1 primary。若 Type2 時段出現 sample gap／nonfinite／clock 等結構錯誤，仍拒絕整個 recording；v1 不支援事後挽救前半段。兩模型必須共用同一 eligible epoch manifest，prediction 缺失或 artifact 不一致是分析失敗，不能包成 subject QC exclusion。
+
+## 6. Endpoint、bootstrap 與判讀門檻
+
+對可評估受試者 i：
 
 ```text
 BA_i = (Recall_Rest_i + Recall_MA_i) / 2
 Primary = mean_i(BA_i)
-Delta_i = BA_i(alpha-PLV + SFS + LDA) - BA_i(BP+COH + SFS + LDA)
+Delta_i = BA_i(primary fixed model) - BA_i(reference fixed model)
 Key secondary = mean_i(Delta_i)
 ```
 
-主要報告 participant-macro BA，每位受試者權重相同；pooled epoch accuracy 只作附表。
-歷史每人每類均 30 epochs，accuracy 與 BA 一致；未來固定 QC 後不平衡時，BA 更清楚呈現兩類辨識。
-Reference model 使用歷史 42 BP＋126 COH、同一 development cohort、既有 training-only SFS 與 LDA。
-兩個模型在同一套事先固定的 eligible test epochs 上比較，禁止各選有利的樣本。
-Reference 同樣需保存固定 fitted artifact；不能拿舊 LOPO 平均 0.523 代替新 cohort baseline prediction。
+人等權；epochs／sessions 不作獨立 N。Primary 只一個，為 A Rest1 vs Type1 的 participant-macro BA。Paired Δ、Type2、expanded nested LOPO 均描述性 secondary；其 nominal CI 不作 multiplicity-adjusted 確認性宣稱。Reference 要在新 cohort 產生固定模型預測，不能用歷史 LOPO 平均替代。
 
-次要表格包含每人每類 recall、confusion matrix、eligible epochs、排除數與 paired Δ。
-Type2、其他模型及 B 分別標為 secondary；其 nominal CI 不當成多重比較校正後的確認性發現。
-目前只設一個 primary endpoint。若要對 secondary 做正式檢定，須在收案前固定 family 與 multiplicity 方法。
+CI 固定為 **participant percentile bootstrap、10,000 resamples、seed 20261109、兩側 95%**。先算每人的 BA，再抽人；兩模型用完全相同的 participant indices 產生 paired Δ。Percentile 不是對所有分布都優良的通用選擇，因此本設計以明確 simulation gate 檢查適用情境，不能只因套件提供選項便宣稱充分。[4]
 
-## 6. 執行介面：fit、predict、score 分開
+| 判讀 | 事前固定規則 |
+|---|---|
+| Above-chance 統計支持 | confirmatory mode、達成 N、非退化 CI，且 primary CI 下界 **>0.50** |
+| 絕對研究目標 | 門檻 **BA=0.65**；下界 >0.65：supported；上界 <0.65：not_met；其餘 uncertain |
+| Paired 增益研究目標 | 門檻 **Δ=0.05**；同樣比較 CI 上下界，但一律是描述性判讀 |
+| 精度 | primary CI 半寬 ≤0.08、N≥60、非退化；獨立於 above-chance 判讀 |
+| Degenerate | 分數或 CI spread ≤`1e-12`，不做確認性／精度充分宣稱 |
+| Pilot 或 cap 導致 N 不足 | CI／interval position 可描述，`inference_scope` 明列 pilot／target shortfall，不冒稱完成 primary confirmation |
 
-以下是待實作的介面契約，不代表 repo 目前已有這些命令：
+等於門檻仍為 uncertain。0.65 與 0.05 是前瞻的研究價值目標，未經真實使用者／BCI 決策成本驗證，不能稱實用性標準。Above-chance、絕對目標、相對增益與精度是四個獨立欄位，沒有「任一通過就成功」的總開關。
+
+CI 只描述固定 development set／固定模型下、新的獨立 participant sampling；不涵蓋換 training cohort、中心或硬體的所有不確定性。若以家庭／班級等群集招募，需在收案前改抽樣模型。不得用歷史 LOPO fold SD/√5、600 epochs 或三種 classifier 來產生新 cohort 的獨立 N／CI。[5]
+
+## 7. 樣本數與招募上限：已完成的數值證據
+
+**v1：目標 60 位 QA-evaluable participants，最多招募 94 位獨立 participants。** 這是在候選 N={20,40,60,80,100} 與 16 個明列情境中，通過 gate 的最小候選值，不是所有可能分布下的數學最小 N。
+
+[`precision_plan.json`](../configs/precision_plan.json) 以 latent participant BA 均值 0.50／0.65／0.80、SD 0.10／0.20、每類 20／30 epochs、額外 within-class epoch ICC 0／0.10／0.30、QC attrition、missing-class 及 paired-model correlation 做情境分析。這些是假設範圍，不從舊五人結果估參數。
+
+Informative QC 情境允許 retention 與 latent performance 相關；計算 **留存可評估者** 的解析真值與 coverage，另外報 all-recruited 真值偏移。它不假設 QC 隨機，也不把可評估者 CI 說成全體招募者的 CI。
+
+| 數值驗證 | 結果 |
+|---|---|
+| Screening | 每個 N／scenario 1,000 個模擬 studies、每次 1,000 bootstrap |
+| 獨立 final validation | 選定 N60，16 scenarios 各 1,000 studies；每次完整 10,000 bootstrap；獨立 seed stream |
+| Primary coverage | 0.934–0.956；最低 pointwise 95% Wilson MC 下界 0.9169 |
+| Primary CI 半寬 p90 | 最大 0.07440，低於 0.08 |
+| 半寬 ≤0.08 機率 | 0.992–1.000；最低 pointwise 95% MC 下界 0.9843 |
+| Paired Δ CI 半寬 p90 | 最寬約 0.10354；不能宣稱有足夠 power 確認 Δ0.05 |
+
+Gate 要求每個情境 primary coverage 的 MC 下界 ≥0.90，且達到半寬目標機率的 MC 下界 ≥0.90。這是預先宣告的 suitability floor，**不是已證明精確 95% coverage**；各 MC bounds 也是 pointwise，沒有宣稱全情境 family-wise 保證。初次 400-study screening 因 MC 下界不足未選出 N；只增加 screening 到 1,000、保留 seed／情境／門檻與原失敗結果，完整歷程見 [planning history](precision/development/history.json)。
+
+招募 cap 用精確 binomial tail：[6]
 
 ```text
-fit(development, frozen_protocol) -> model_artifact + training_manifest
-predict(model_artifact, test_features) -> immutable_predictions + prediction_manifest
-score(immutable_predictions, locked_labels, locked_eligibility) -> external_report
+retention_floor = (1 - 0.25 QC loss) * (1 - 0.05 missing-class loss) = 0.7125
+cap = smallest m with P[Binomial(m, 0.7125) >= 60] >= 0.95 = 94
+P[reach 60 by cap 94 | these assumptions] = 0.95330
 ```
 
-`fit` 必須驗證 development subject IDs、feature schema、class mapping、資料與設定 hash。
-`predict` 的模型輸入只接受固定的 feature columns，不接收 class、stage、檔名或 correctness 作為 predictor。
-Epoch 定位與 correctness eligibility 可由獨立的 protocol metadata 流程建立；不能依模型分數修改。
-先對 protocol-valid epochs 生成預測，再以預先固定規則套用 correctness／QC mask，完整保留分母。
-若看得到實驗事件而無法做到人員完全盲化，誠實記錄限制；仍須維持模型輸入與評分的隔離。
+不以 `60 / retention` 的期望值代替完成機率。若實際 retention 只有 0.60，cap94 的完成機率約 0.2584；只有 0.50 時約 0.0048。這些是模型假設敏感度，不是觀察到的 attrition。到 cap 仍未滿 60 就停止並報 precision shortfall，不能看模型分數後補招至成功。
 
-預測輸出至少包含 `subject_id`、`session_id`、`protocol_id`、`epoch_id`、`model_id`、prediction 與 artifact hash。
-先寫出 predictions 及 SHA-256 manifest，再啟用含標籤的 `score`；相同 run ID 禁止覆寫。
-`score` 須驗證模型、protocol、epoch keys、predictions、labels、eligibility hashes 與預定 cohort 邊界。
-同一份輸入的重算可驗證一致性；任何變更須新 run ID、記錄原因，不能覆蓋原來主要分析。
-主要報告產生後鎖定該版本；後續修正與 secondary analyses 以 amendment 追蹤。
+## 8. Score-blind 收案、停止與 cumulative ledger
 
-## 7. QC、missing data 與 repeated sessions
+停止新招募的條件為 **first of N60 可評估者或 94 位 unique recruited participants**。每次 audit 必須給完整 cumulative roster，不得分成數批各自重用 cap。已在停止時間前招募者可完成預定 session／合規 replacement，全部 eligible 人都列入，不挑恰好 60 人；因此 final N 可以略超過 60，但 recruited N 絕不超過 94。
 
-收案前固定 acquisition reference、ground、signal units、sampling rate、channel order 與 event alignment。
-實際 reference／units 尚未核對；不能以猜測值把本草案升級為 acquisition-ready。
-Raw continuity、finite values、flat channels、sampling-rate 一致性、event／trial 對齊須成為 fail-fast checks。
-Artifact amplitude、flatness duration、接觸品質等數值門檻由 acquisition feasibility 確定並在收案前封存。
-禁止利用新 cohort 的 accuracy 或 class-separation 最佳點選 QC threshold。
+每人有 UTC `recruited_at`、`closed_at`、population eligibility attestation 與 `pending/completed/withdrawn/lost_to_followup` disposition。`closed_at` 表示資料與 QA／disposition 已盲於模型結果而定案；到達 N 的時間以第 60 位 completed evaluable participant 的該時間為準。不得延後登錄 QA 結論來迴避停止。停止後新 recruit 必須失敗；cap 到達但仍有 pending participants 時，只停止招募，**不允許 outcome access**。
 
-所有剔除須保存 `reason_code`、適用範圍、原始 epoch keys 與可評估分母。
-Subject-level 排除、session 重錄條件、每類最少有效 epochs 亦須事前固定。
-某人缺少任一類或不滿最少數量時，該 primary BA 為不可評估，不能補成 0.5 或只算剩下的一類。
-此類個案仍列入招募／流失表；不宣稱排除後結果代表所有招募者，也不假設缺失完全隨機。
-若預測缺漏來自程式或 artifact 不相容，應使 run 失敗並調查，不能把低分個案當 QC 排除。
+[`cohort_policy.assess_enrollment`](../src/eeg_ma/cohort_policy.py) 驗證 literal unique IDs、所有 session 上限、first valid session、task stop reasons、withdrawal、replacement window、Rest 完整度、correct-only、一人一權重及停止時間。其欄位是 operator-attested metadata；每個 session 綁定實際 shared raw preflight report 的 `qa.evidence_sha256`。它驗證記錄的一致性，不能取代 raw QA 或證明人工輸入真實。完整 manifest 會在 outcome event 內保存原始 bytes 與 hash。
 
-A 的 primary 預設每人只使用第一個符合事先 QC 的 A session。
-僅在預定的技術失敗條件下允許 replacement；不因 accuracy 差而重錄或選另一 session。
-若正式協定改用多個 A sessions，必須在收案前固定 participant-level 聚合方式，再對人等權平均。
-B 另算同人的 B endpoint；paired A／B 比較也以人為單位，絕不能把兩 sessions 算成兩人。
+Manifest schema：`eeg-enrollment-1`，頂層只有 `schema_version`、`cohort_id`、`outcomes_accessed:false`、`participants`。Participant 僅有 `subject_id`、`recruited_at`、`population_eligible:true`、`disposition`、`closed_at`、`sessions`。Session 僅有：
 
-不使用人工挑選高分 epochs、label-aware artifact removal 或事後改變 correct-only 定義。
-若要評估所有有效心算嘗試，應事前指定為獨立 secondary endpoint，並保留錯誤作答資訊。
-
-## 8. 不確定性與可支持的推論
-
-固定模型外部測試完成後，primary 採 **participant bootstrap**：以人有放回抽樣，每次保留其全部資料。
-建議鎖定 10,000 次、固定 seed、兩側 95% percentile CI；正式參數與適用性須通過收案前 simulation gate。
-每次先形成每人的 BA，再取 macro mean；paired Δ 使用同一抽樣人的兩模型結果。
-若納入多 sessions，抽樣單位仍是 participant cluster；不能把 epochs 或 sessions 當獨立抽樣單位。
-
-此 CI 估計固定 training set 與固定模型下，新 cohort 受試者抽樣的不確定性。
-它不包含換一批 training subjects、換實驗中心或換硬體所產生的全部不確定性。
-Bootstrap 需要受試者抽樣單位可合理視為獨立；若存在家庭、班級或其他群集，須事前修訂抽樣模型。
-小樣本 bootstrap 可能覆蓋率不足；不能因得到數字就宣稱精確，應由預定 simulation 決定可用性。
-
-**不得把歷史五個 LOPO fold 的 SD/√5 直接當作本試驗 CI。**
-LOPO 模型共享大量 training data；其折間變異不是固定模型新 cohort 的獨立誤差估計。[5]
-也不得以 300／600 epochs 當獨立 N，或以三個分類器當三次獨立重複。
-歷史數字及擴充樣本 LOPO 先保留描述性報告；需要正式推論時另定符合其重抽樣結構的方法。
-固定 block 設計不允許任意 epoch-label permutation 被解讀成控制時間混淆後的證據。
-
-## 9. 收案數與 precision simulation gate
-
-**目標 N、招募上限、每類最低 epoch 數目前待定；它們是收案前 gate，不是現在阻擋 roadmap PR 的問題。**
-先決定希望達到的 participant-macro BA CI 半寬，以及有研究意義的 baseline 增益門檻 `delta_min`。
-以多組合理的 participant variation、類別 epoch 數、QC 流失率與 BA 分布模擬候選 N。
-受試者內的 epochs 不假設互相獨立；需要時用相關 trial／block 模型產生資料。
-模擬須評估 CI 覆蓋率、寬度、missing-class 影響與 paired Δ 的精度，不只算「高於 0.5 的 power」。
-不可只代入舊五人的 0.741 或其最小 SD；已經過 representation selection 的觀察可能過度樂觀。
-
-輸出 simulation 設定、seed、候選 N、敏感度範圍、選定 N 與預定招募上限。
-停止條件依可評估受試者數或事先寫定的招募上限；不能一邊看 accuracy，一邊決定是否繼續收案。
-若資源使精度目標無法達成，事前改列 estimation／pilot study，保留結果而不冒稱充足確認。
-
-## 10. 結果判讀：統計支持、實用價值、未定論
-
-| 層級 | 事先固定的判讀方式 |
-|---|---|
-| 統計支持 | 在協定與抽樣假設成立時，primary 95% CI 下界高於 0.5，支持此 acquisition protocol 下的 above-chance discrimination |
-| 實用增益 | key secondary 的 paired Δ 與事前固定 `delta_min` 比較；須同時呈現 CI，不只看平均改善 |
-| 未定論 | CI 跨過 chance／實用門檻，或樣本與缺失使精度不足；不以「沒有顯著」直接宣稱完全無效 |
-| 未達目標 | 若 CI 與預定目標明確不相容，報告未達目標及適用範圍，不更換 primary 重新宣布成功 |
-
-Above-chance 不自動等於具有實用價值；相對 baseline 改善也不自動等於絕對表現足夠。
-`delta_min` 必須在解盲前訂定；若另需絕對可用性門檻，須同時寫入，不能事後以最接近結果的值取代。
-Secondary 的實用門檻評估是估計性判讀，除非預先定義 multiplicity 方法，不另宣稱校正後顯著。
-A 與 B 不可事後擇優；A 的良好結果仍受 fixed order／視覺條件限制，B 的差異需依其設計解讀。
-不把分類成功等同於已證實神經因果連結；iPLV 結果也不能單獨定位 artifact 或真實同步來源。[3,4]
-
-## 11. Freeze manifest 與啟動條件
-
-正式 freeze manifest 至少包含以下欄位；`pending` 欄位清空後才能升級狀態：
-
-```yaml
-status: draft
-protocol_id: pending
-development_subject_manifest_sha256: pending
-confirmatory_cohort_definition: pending
-acquisition_reference_and_units: pending
-qc_rules_and_minimum_class_counts: pending
-primary_endpoint: participant_macro_balanced_accuracy
-primary_model: alpha_plv_sfs_lda
-secondary_reference: bp_coh_sfs_lda
-target_evaluable_subjects: pending
-recruitment_cap_and_stop_rule: pending
-delta_min: pending
-uncertainty_and_simulation_report: pending
-code_config_environment_hashes: pending
-fitted_model_and_feature_schema_hashes: pending
+```text
+session_id / protocol_id / attempt_number / started_at / duration_seconds
+qa: passed (bool), reason_codes (error-code list), evidence_sha256
+attempts / correct / eligible_correct: Type1, Type2 的 integer counts
+rest_acquired / rest_eligible / rest_seconds: Rest1, Rest2 的 counts 或秒數
+task_end: Type1, Type2 各一個 quota_reached / attempt_limit /
+          session_time_limit / not_started / technical_failure / withdrawal
 ```
 
-收案前確認 acquisition／QC／樣本數／終點等欄位完整，並記錄協定簽定與版本時間。
-新 test 資料進入分析前確認 fitted artifacts、訓練資料邊界、hash guards 與資料契約完整。
-Prediction 前確認 test subject／session IDs 與 development 無交集；score 前確認 predictions 已封存。
-正式註冊若採外部服務，另填真實註冊 URL／時間；本文件不預填或暗示已完成。
+禁止額外分數、預測或 accuracy 欄位；bool 不當 integer。Synthetic 完整範例見 [`test_cohort_policy.py`](../tests/test_cohort_policy.py)，測試資料不是已招募參與者。
 
-## 12. 實作驗收與變更規則
+```bash
+PYTHONPATH=src python scripts/17_audit_enrollment.py \
+  --lock outputs/protocol-v1 \
+  --enrollment private/enrollment.json \
+  --out-dir outputs/enrollment-audit-001
+```
 
-- 合成 fixture 證明更改 test labels 不會改變 fitted artifacts 或 predictions；只影響評分。
-- Fit spy／明確介面證明 test data 未進 scaler、SFS、classifier；schema 缺欄、錯序或 ID 交集必須拒絕。
-- Test epoch 重排只改變列順序，不改變依 `epoch_id` 對齊的預測；duplicate keys 必須失敗。
-- Prediction／model／eligibility hash 任一不符時拒絕 score，不靜默重算後覆寫。
-- 驗證 missing-class 不會產生假 BA；多 session 不會增加 participant N 或改變等權原則。
-- 兩模型 paired Δ 必須使用同一 eligibility manifest；不完整 predictions 不能被默默丟棄。
-- 外部測試與 expanded LOPO 使用不同 analysis IDs、輸出路徑與報告標題。
+每次新輸出，不能覆蓋舊 audit。`stop_recruitment`、`outcome_ready` 分別報告停止與可解盲；後者還需所有已招募者定案。失訪、撤回、缺類與技術失敗留在 flow，不填 chance score，不推論 excluded subjects 的模型表現。
 
-看到新 cohort 的績效後，若修改模型、QC、選特徵、門檻或 protocol，該 cohort 轉為 development。
-保留原主要結果與 amendment；下一次確認需新的未見 holdout，不重新包裝同一批資料。
+## 9. 真正的 lock 與啟動 gate
+
+`validate → lock → launch → audit enrollment → record-outcome-access` 是現有操作順序；詳見 [protocol gate 操作](protocol_gate.md)。這些命令不能取代 acquisition、人員核准或 #11 的固定模型執行管線。
+
+| 證據 | v1 repo 狀態 | Lock 所需真實內容 |
+|---|---|---|
+| 協定、QA、N／cap、endpoints | 已定義 | snapshot 與 SHA-256 |
+| Simulation | 已生成、通過 16 scenarios | report、原 config／engine 身分、完整驗證數值 |
+| Development boundary | 已綁定現有 feature bytes／subject IDs／legacy mapping | 真實資料檔與 manifest，不能只宣告 hash 而無檔案 |
+| Feature schema／analysis config | 已生成 | exact ordered features、class mapping、數值方法 |
+| Acquisition | **未完成** | device、units、reference、ground、歷史對齊／Fs／clock 等實證及核准 |
+| Environment | **未完成，#10** | 精確 runtime／dependency manifest，不能以本次模擬環境冒充模型 training environment |
+| Primary／reference fitted models | **未完成，#11** | binary artifacts、development-only training manifests、feature/config/data/eligibility hashes |
+| 人員／倫理／資源 | **未完成** | 真實負責人、核准時間、倫理判定與 reference、資源承諾 |
+| Registration | `not_registered` | 若採外部註冊，另填實際 URL／時間；local lock 不等於註冊 |
+
+任何必要欄位 missing、null、unknown、false verification 或 artifact 缺失都阻擋 lock。鎖定時使用 clean Git commit 與 working-source fingerprint，複製實際 artifacts／development sources，建立不可原地覆寫的 snapshot；不反序列化不可信的模型 binary。之後驗證靠已封存 bytes，不依賴外部來源仍存在。
+
+Launch roster 必須與 cohort ID、A protocol ID 一致；與 development／歷次 exposed subjects 不得交集。`record-outcome-access` 要求同一 full roster 的 enrollment audit 已達 stop 且沒有 pending，再記錄機器 UTC、原始 manifest bytes、SHA 與 hash-chain event。解盲後原 lock 不再接受招募。所有可見紀錄可稽核，但本地 ledger 不是數位簽章或防惡意管理員機制，無法證明有人從未私下看過結果。
+
+## 10. Amendment、pilot 與後續實作邊界
+
+收案前資源不足時，應先改 `study.mode=pilot_estimation`、重新指定可負擔 N／較寬精度目標、重新產生匹配該 N／cap 的 simulation report，再以新 version lock。單改 mode 不會讓 N20 重用 N60 的證據；仍要如實通過所宣告的 interval suitability gate。保留 parent lock／原計畫，結果只作 estimation，不以 pilot 名稱補救已看過的失敗 primary。
+
+任何 amendment 要有理由、parent lock identity、時間及 changed sections。Outcome access 後的模型、QC、特徵、threshold 或 protocol 更動，必須記錄舊 test subjects 已 exposed，改用新的 cohort ID 與未見 holdout；不能把 `outcomes_accessed` 改回 false 清除歷史。即使只是修正文案，本地流程也保守地要求 post-outcome 新 lock 的新 holdout，不允許重開原收案。
+
+#11 尚須完成 `fit → immutable predict → locked score`：development-only fit spies、label permutation 不改 predictions、ordered schema／subject boundary、prediction／label／eligibility hashes、兩模型相同 epochs、missing prediction fail closed。#12 尚須將本協定的人層級 CI／flow／interpretation 整合成最終研究報告。現在可驗證 #9 的協定工程與 synthetic 情境，尚不能宣稱真實固定模型外部驗證已完成。
 
 ## 參考來源
 
-1. Cawley & Talbot (2010), [On Over-fitting in Model Selection and Subsequent Selection Bias in Performance Evaluation](https://www.jmlr.org/papers/v11/cawley10a.html)：有限資料上的流程選擇仍可能造成評估偏差。
-2. White & Power (2023), [k-Fold Cross-Validation Can Significantly Over-Estimate True Classification Accuracy in Common EEG-Based Passive BCI Experimental Designs](https://pmc.ncbi.nlm.nih.gov/articles/PMC10346713/)：長 block 切分 epochs 的時間相關問題；block-wise CV 也不是保證無偏的解方。
-3. Bastos & Schoffelen (2016), [A Tutorial Review of Functional Connectivity Analysis Methods and Their Interpretational Pitfalls](https://www.frontiersin.org/journals/systems-neuroscience/articles/10.3389/fnsys.2015.00175/full)：reference、volume conduction、SNR、common-input 與樣本限制。
-4. Bruña et al. (2018), [Phase Locking Value revisited: teaching new tricks to an old dog](https://arxiv.org/abs/1710.08037)：PLV、iPLV／ciPLV 的方法與 zero-lag sensitivity。
-5. Varoquaux (2018), [Cross-validation failure: Small sample sizes lead to large error bars](https://arxiv.org/abs/1706.07581)：小樣本 CV 的不確定性，以及不能直接由折間標準誤宣稱精度的原因。
+1. Cawley & Talbot (2010), [On Over-fitting in Model Selection and Subsequent Selection Bias in Performance Evaluation](https://www.jmlr.org/papers/v11/cawley10a.html).
+2. White & Power (2023), [k-Fold Cross-Validation Can Significantly Over-Estimate True Classification Accuracy in Common EEG-Based Passive BCI Experimental Designs](https://www.mdpi.com/1424-8220/23/13/6077). DOI: 10.3390/s23136077.
+3. MNE, [Rejecting bad data spans and breaks](https://mne.tools/stable/auto_tutorials/preprocessing/20_rejecting_bad_data.html)：threshold 的操作與適用條件，不能把 tutorial 數值視為本設備的已驗證參數。
+4. SciPy, [bootstrap](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.bootstrap.html)：percentile／BCa、paired resampling、degenerate distribution 的區別。
+5. Varoquaux (2018), [Cross-validation failure: Small sample sizes lead to large error bars](https://arxiv.org/abs/1706.07581).
+6. SciPy, [binom](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.binom.html)：以 `sf(target-1, cap, retention)` 計算完成率。
+7. Center for Open Science, [Preregistration](https://www.cos.io/initiatives/prereg)：事前計畫、已看過資料與後續 deviations 的區分。
