@@ -1,7 +1,7 @@
 {
   "schema_version": "eeg-confirmatory-protocol-1",
   "protocol_id": "eeg-ma-confirmatory-study",
-  "protocol_version": "1.0",
+  "protocol_version": "1.1",
   "status": "draft",
   "study": {
     "mode": "confirmatory",
@@ -242,7 +242,8 @@
     },
     "model_training_scope": "development_only",
     "expanded_development_rule": "freeze_new_models_and_reserve_new_unexposed_holdout",
-    "source_code_policy": "capture_commit_and_working_source_fingerprint_at_lock"
+    "source_code_policy": "capture_commit_and_working_source_fingerprint_at_lock",
+    "environment_policy": "verified_reference_environment"
   },
   "approval": {
     "responsible_person": null,

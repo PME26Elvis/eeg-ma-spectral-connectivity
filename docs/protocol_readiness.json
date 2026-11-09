@@ -1,9 +1,9 @@
 {
   "schema_version": "eeg-protocol-readiness-1",
   "protocol_path": "configs/confirmatory_protocol.json",
-  "protocol_sha256": "1549e8c032c4ae187a1887d466139b9a69f3505be9facdaf8267651dcad553cd",
+  "protocol_sha256": "80a4e132bce47c2bcaba4a6ab6dd44e194294dd155c1f94eea7c4880ce706822",
   "validator_path": "src/eeg_ma/protocol.py",
-  "validator_sha256": "6608b41d9dcde7ef373a59c0b67c137fbbb1ca65b28940d09ef006391fb77c10",
+  "validator_sha256": "8a51049ce58b57a02238692e9bb18c48a1bcbf8ca0eaec5f1836986acfc6fdf7",
   "scope": "decision_readiness_and_available_file_hashes; not_a_live_study_lock_or_registration",
   "available_artifacts": [
     {

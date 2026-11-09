@@ -1,10 +1,13 @@
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .venv/
+.venv-*/
 venv/
 .env
+/.environment-candidate/
 
 # Raw / intermediate EEG: never commit
 /data/raw/*

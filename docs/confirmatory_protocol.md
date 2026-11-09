@@ -1,6 +1,6 @@
 # 獨立受試者驗證協定 v1：設計已定義，正式收案仍受 gate 管理
 
-**版本 1.0；2026-11-09；狀態 DRAFT／尚未註冊。** #9 完成可執行的協定、樣本數證據、收案稽核與鎖定／修訂機制。實際設備驗證、研究核准、固定模型與環境證據尚未齊備，不能把文件合併稱為已鎖定、已註冊或已開始收案。
+**版本 1.1；2026-11-09；狀態 DRAFT／尚未註冊。** #9 完成可執行的協定、樣本數證據、收案稽核與鎖定／修訂機制；#10 加入 verified reference environment 與 training lock identity 的必要契約，研究終點、N／cap 與數值方法不變。實際設備驗證、研究核准、固定模型與其 training environment 證據尚未齊備，不能把文件合併稱為已鎖定、已註冊或已開始收案。
 
 機器可讀的唯一決策來源是 [`confirmatory_protocol.json`](../configs/confirmatory_protocol.json)；操作見 [protocol gate](protocol_gate.md)，數值證據見 [precision report](precision/README.md)。歷史方法與結果仍分別以 [`method_definition.md`](method_definition.md)、[`final_results_summary.md`](final_results_summary.md) 為準。
 
@@ -193,7 +193,7 @@ PYTHONPATH=src python scripts/17_audit_enrollment.py \
 | Development boundary | 已綁定現有 feature bytes／subject IDs／legacy mapping | 真實資料檔與 manifest，不能只宣告 hash 而無檔案 |
 | Feature schema／analysis config | 已生成 | exact ordered features、class mapping、數值方法 |
 | Acquisition | **未完成** | device、units、reference、ground、歷史對齊／Fs／clock 等實證及核准 |
-| Environment | **未完成，#10** | 精確 runtime／dependency manifest，不能以本次模擬環境冒充模型 training environment |
+| Environment | **#10 reference stack／驗證機制已交付；實際 training evidence 隨 #11 產生** | 精確 runtime／dependency manifest、已驗證的 reference lock；不能以 CI／模擬環境冒充模型 training environment |
 | Primary／reference fitted models | **未完成，#11** | binary artifacts、development-only training manifests、feature/config/data/eligibility hashes |
 | 人員／倫理／資源 | **未完成** | 真實負責人、核准時間、倫理判定與 reference、資源承諾 |
 | Registration | `not_registered` | 若採外部註冊，另填實際 URL／時間；local lock 不等於註冊 |

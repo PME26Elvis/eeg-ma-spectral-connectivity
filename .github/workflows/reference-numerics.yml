@@ -1,0 +1,92 @@
+name: Reference numerical CI
+
+'on':
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'configs/**'
+      - 'environment/**'
+      - 'docs/manifests/**/*.json'
+      - 'docs/precision/**/*.json'
+      - 'docs/precision/**/*.csv'
+      - 'docs/precision/**/*.txt'
+      - 'docs/protocol_readiness.json'
+      - 'pyproject.toml'
+      - '.github/workflows/**'
+      - '.gitignore'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'configs/**'
+      - 'environment/**'
+      - 'docs/manifests/**/*.json'
+      - 'docs/precision/**/*.json'
+      - 'docs/precision/**/*.csv'
+      - 'docs/precision/**/*.txt'
+      - 'docs/protocol_readiness.json'
+      - 'pyproject.toml'
+      - '.github/workflows/**'
+      - '.gitignore'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: reference-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  NUMEXPR_NUM_THREADS: '1'
+  PYTHONHASHSEED: '0'
+  MPLBACKEND: Agg
+  EEG_MA_INSTALL_REPORT: ${{ github.workspace }}/outputs/reference/install.json
+  EEG_MA_REFERENCE_SPEC: ${{ github.workspace }}/environment/reference.json
+
+jobs:
+  reference-numerical:
+    name: Reference / CPython 3.12.14 / Linux x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12.14'
+          cache: pip
+          cache-dependency-path: environment/reference-linux-x86_64-py312.lock
+      - name: Rebuild isolated hash-locked reference environment
+        run: |
+          mkdir -p outputs/reference
+          python -m venv .venv-reference
+          .venv-reference/bin/python -m pip install --force-reinstall --no-deps --require-hashes --only-binary=:all: --report outputs/reference/install.json -r environment/reference-linux-x86_64-py312.lock
+          .venv-reference/bin/python -m pip install --no-deps --no-build-isolation -e .
+          .venv-reference/bin/python -m pip check
+      - name: Verify actual interpreter, resolved dependencies and wheel receipts
+        run: .venv-reference/bin/python scripts/18_environment.py verify --out outputs/reference/environment.json
+      - name: Test high-risk contracts in the reference environment
+        run: .venv-reference/bin/python -m pytest --junitxml=outputs/reference/pytest.xml
+      - name: Rebuild synthetic raw-to-report numerical fixture
+        run: .venv-reference/bin/python scripts/19_validate_numerics.py --out-dir outputs/reference/numerical --require-reference-environment
+      - name: Retain reference evidence and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reference-numerics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/reference/
+          if-no-files-found: warn
+          retention-days: 90

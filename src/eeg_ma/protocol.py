@@ -258,6 +258,7 @@ def validate_protocol(spec: dict, *, stage="draft") -> ProtocolCheck:
         "freeze.model_training_scope": "development_only",
         "freeze.expanded_development_rule": "freeze_new_models_and_reserve_new_unexposed_holdout",
         "freeze.source_code_policy": "capture_commit_and_working_source_fingerprint_at_lock",
+        "freeze.environment_policy": "verified_reference_environment",
         "amendment_policy.before_outcomes": "new_version_linked_to_prior_lock_and_no_silent_overwrite",
         "amendment_policy.after_outcomes_sensitive_change": "old_test_subjects_exposed_new_untouched_holdout_required",
         "amendment_policy.pilot_downgrade": "only_before_outcomes_with_new_mode_and_new_lock; preserve_original_plan",
@@ -410,6 +411,12 @@ def _artifact_semantics(spec: dict, contents: dict[str, bytes], dataset_contents
     schema_sha = hashlib.sha256(contents["feature_schema"]).hexdigest()
     if dev.get("feature_schema_sha256") != schema_sha:
         raise ProtocolError("Development manifest references a different feature schema")
+    environment = _json_bytes(contents["environment"], "environment")
+    from .environment import validate_environment_evidence
+    try:
+        validate_environment_evidence(environment, require_reference=True)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ProtocolError(f"Frozen environment is not verified reference evidence: {exc}") from exc
     for role, learner in (("primary", "alpha_plv_sfs_lda"), ("reference", "bp_coh_sfs_lda")):
         training = _json_bytes(contents[role + "_training_manifest"], role + "_training_manifest")
         expected = {
@@ -418,6 +425,8 @@ def _artifact_semantics(spec: dict, contents: dict[str, bytes], dataset_contents
             "development_manifest_sha256": hashlib.sha256(contents["development_manifest"]).hexdigest(),
             "analysis_config_sha256": hashlib.sha256(contents["analysis_config"]).hexdigest(),
             "environment_sha256": hashlib.sha256(contents["environment"]).hexdigest(),
+            "environment_id": environment["environment_id"],
+            "environment_lock_id": environment["lock_id"],
             "feature_schema_sha256": hashlib.sha256(contents["feature_schema"]).hexdigest(),
             "training_data_sha256": data_sha, "eligibility_rule_sha256": fingerprint(spec["eligibility"]),
             "fitted_on_development_only": True, "target_fit_performed": False,
@@ -435,11 +444,6 @@ def _artifact_semantics(spec: dict, contents: dict[str, bytes], dataset_contents
         raise ProtocolError("Acquisition evidence needs its actual verifier")
     if _utc(evidence.get("verified_at"), "acquisition verified_at") > datetime.now(timezone.utc):
         raise ProtocolError("Acquisition verification cannot be in the future")
-    environment = _json_bytes(contents["environment"], "environment")
-    if not _text(environment.get("python")) or not isinstance(environment.get("packages"), dict) or not environment["packages"]:
-        raise ProtocolError("Environment evidence must identify Python and package versions")
-    if any(not _text(v) for v in environment["packages"].values()):
-        raise ProtocolError("Environment versions must be recorded, not guessed")
     analysis = _json_bytes(contents["analysis_config"], "analysis_config")
     for key in ("sampling_rate_hz", "epoch_seconds", "raw_channels", "analysis_channels"):
         if analysis.get(key) != spec["acquisition"][key]:

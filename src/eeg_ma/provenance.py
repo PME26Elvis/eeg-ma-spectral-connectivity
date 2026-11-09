@@ -11,11 +11,9 @@ from datetime import datetime, timezone
 import hashlib
 import csv
 from io import StringIO
-import importlib.metadata
 import json
 import os
 from pathlib import Path
-import platform
 import re
 import subprocess
 import sys
@@ -123,27 +121,18 @@ def code_identity(project_root: str | Path | None = None) -> dict:
         result = subprocess.run(["git", "-C", str(project), *args], capture_output=True, text=True)
         return result.stdout.strip() if result.returncode == 0 else None
     commit = git("rev-parse", "HEAD")
-    source_paths = sorted({*project.glob("src/**/*.py"), *project.glob("scripts/**/*.py"), *project.glob("configs/*.json"), *project.glob("pyproject.toml")})
+    source_paths = sorted({*project.glob("src/**/*.py"), *project.glob("scripts/**/*.py"), *project.glob("configs/*.json"),
+                          *project.glob("environment/*.json"), *project.glob("environment/*.lock"), *project.glob("pyproject.toml")})
     files = {str(p.relative_to(project)): sha256_file(p) for p in source_paths if p.is_file()}
-    status = git("status", "--porcelain=v1", "--untracked-files=all", "--", "src", "scripts", "configs", "pyproject.toml")
+    status = git("status", "--porcelain=v1", "--untracked-files=all", "--", "src", "scripts", "configs", "environment", "pyproject.toml")
     return {"commit": commit or "unknown", "dirty": bool(status) if status is not None else "unknown",
             "dirty_fingerprint": fingerprint({"status": status, "working_source_files": files}),
             "working_source_sha256": fingerprint(files), "source_files": files}
 
 
 def environment_identity(project_root: str | Path | None = None) -> dict:
-    packages = {}
-    for name in ("numpy", "pandas", "scipy", "scikit-learn", "joblib", "matplotlib"):
-        try:
-            packages[name] = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            packages[name] = "not-installed"
-    project = Path(project_root or PROJECT_ROOT)
-    locks = {p.name: sha256_file(p) for pattern in ("*lock*", "requirements*.txt") for p in project.glob(pattern) if p.is_file()}
-    return {"python": platform.python_version(), "implementation": platform.python_implementation(),
-            "platform": platform.platform(), "machine": platform.machine(), "packages": packages,
-            "lock_files": locks, "lock_id": fingerprint(locks) if locks else "unknown",
-            "thread_environment": {name: os.environ.get(name) for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")}}
+    from .environment import capture_environment
+    return capture_environment(project_root)
 
 
 def input_inventory(paths: Mapping[str, str | Path]) -> dict:
@@ -371,6 +360,19 @@ def validate_complete_run(root: str | Path, expected_identity: dict | None = Non
         raise ProvenanceError(f"Run identity digest mismatch: {root}")
     if expected_identity is not None and canonical_json(identity) != canonical_json(expected_identity):
         raise ProvenanceError(f"Resume identity mismatch: {root}; use a new output root")
+    environment = identity.get("environment")
+    environment_markers = {"schema_version", "environment_id", "reference", "reference_validation",
+                           "install_artifacts", "installed_content"}
+    if isinstance(environment, dict) and environment_markers.intersection(environment):
+        # New evidence is self-contained and must remain semantically valid
+        # after a manifest is rehashed. Historical identities without this
+        # evidence keep their original, explicitly limited provenance contract.
+        # Deleting only schema_version cannot downgrade new evidence to legacy.
+        from .environment import EnvironmentError, validate_environment_evidence
+        try:
+            validate_environment_evidence(environment)
+        except EnvironmentError as exc:
+            raise ProvenanceError(f"Invalid run environment evidence: {exc}") from exc
     for path in manifest.get("artifacts", {}):
         _safe_relative(path)
     if _artifacts(root) != manifest.get("artifacts"):

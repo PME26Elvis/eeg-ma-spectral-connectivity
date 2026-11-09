@@ -5,8 +5,10 @@ This gate implements the draft → locked → outcome-accessed boundary for the
 `configs/confirmatory_protocol.json` is deliberately a **blocked draft**. The
 planning simulation and analysis specification are available; actual device,
 reference, ground, units, acquisition verification, responsible-person approval,
-resource commitment, fitted model evidence and deployment environment still
-require real study evidence. Passing automated tests does not provide that
+resource commitment and fitted model/training-environment evidence still
+require real study evidence. Issue #10 supplies the reference environment and
+its verification mechanism, described in [the reproducibility guide](reproducibility.md).
+Passing automated tests does not provide real model-training
 evidence, enroll anyone, or register a study externally.
 
 ## Commands and their meaning
@@ -52,7 +54,7 @@ and `1`; it does not infer that they belong to the same human.
 | Analysis configuration | Sampling, channels, epoch length, marker and numerical QA settings consistent with the protocol; bounded-count preflight contract |
 | Feature schema | Exact ordered 21 alpha-PLV and 168 BP+COH candidate features, learner identities, class mapping and acquisition identity |
 | Precision report | Completed design simulation with embedded configuration and engine identity; reconstructed coverage/width gates, all scenarios and actual selected N/cap |
-| Environment | Explicit Python and package versions, copied and hashed as supplied evidence |
+| Environment | Verified reference evidence with embedded definition/requirements, wheel receipt and installed-content checks, exact Python/dependencies, native libraries, thread settings, environment identity and lock identity |
 | Acquisition verification | Actual operator, timezone-aware verification time, positive verification and digest of the declared acquisition facts |
 
 All frozen artifact bytes are copied into `artifacts/`. Development source bytes
@@ -91,6 +93,8 @@ contains all of these fields:
 | `training_data_sha256` | Exact development **dataset inventory** bytes, whose source hashes are also verified |
 | `analysis_config_sha256`, `feature_schema_sha256` | Exact frozen analysis and feature schema files |
 | `environment_sha256` | Exact frozen environment evidence bytes, binding both models to their declared training environment |
+| `environment_id` | Canonical identity of the complete observed environment evidence |
+| `environment_lock_id` | The reference lock identity actually verified by that environment evidence |
 | `training_subject_ids` | Unique literal IDs equal to the declared development set |
 | `eligibility_rule_sha256` | Canonical SHA-256 of the protocol's entire `eligibility` object |
 | `fitted_on_development_only` | Boolean `true` |
@@ -100,7 +104,11 @@ Changing a model binary without regenerating consistent provenance fails.
 Changing eligibility while preserving an old model manifest also fails. Both
 models must share the same development data, eligibility rule and frozen training
 environment. Replacing the environment file with an unrelated, separately hashed
-environment cannot satisfy either model's training provenance. These manifests
+environment cannot satisfy either model's training provenance. A versions-only
+record, a legacy unknown environment, or a lock file merely present on disk does
+not meet `freeze.environment_policy: verified_reference_environment`. Verification
+of an archived lock uses its embedded evidence, not the verifier's current host;
+new execution must separately verify the live environment. These manifests
 are auditable training attestations; opaque bytes do not independently prove how
 an estimator was fitted. The future fixed-model scoring implementation must use
 these artifacts without fitting on the held-out cohort.
