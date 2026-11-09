@@ -4,6 +4,8 @@
 檢查基準：[`df6b1394f0f68c4ce5a3c6659f09cc7fb918ecc1`](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/tree/df6b1394f0f68c4ce5a3c6659f09cc7fb918ecc1)  
 狀態：**規劃提案；本 PR 不實作新演算法、不重算或覆寫正式研究結果。**
 
+規劃 PR：[#6](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/pull/6)；實作追蹤見第 6 節的獨立 Issues。
+
 ## 1. 方向與決策
 
 下一階段的核心目標是：**把目前探索性的 α-PLV 結果，發展成可以追溯、可以固定、可以交給新受試者檢驗的離線 EEG 分類研究。**
@@ -168,13 +170,13 @@ Calibration/EA 若使用 held-out subject 的整段測試資料估轉換，必�
 
 | 工作包 | 優先級 | 交付摘要 | 前置依賴 | GitHub tracking |
 | :-- | :-- | :-- | :-- | :-- |
-| W1 Run identity 與 safe resume | P0 | Immutable manifests、完整性、partial report 分流、歷史 inventory | 無 | 待建立 |
-| W2 Session/epoch schema 與 ingestion QA | P0 | 一對一 events、typed QA、多 sessions、stable epoch IDs | W1 的 identity 格式；可並行設計 | 待建立 |
-| W3 固定模型與可稽核 evaluation | P1 | Fit/predict/score、split invariants、no-target-fit、artifact | W1、W2；正式 freeze 需 W4/W7 | 待建立 |
-| W4 前瞻收案協定與 precision plan | P1 | Primary/secondary、N、排除、A/B protocol、鎖定 gates | W2 schema；可與 W1/W3 並行規劃 | 待建立 |
-| W5 Result contract 與受試者層級報告 | P1 | Prediction-derived metrics、paired Δ、uncertainty、完整圖表 gate | W1、W2；external report 需 W3/W4 | 待建立 |
-| W6 有限的相位／量測控制實驗 | P2 | 新協定上的 matched α-PLV/iPLV/ciPLV、reference/artifact control | W1–W5、W7 與新資料；獨立 protocol | 待建立 |
-| W7 固定研究環境與高風險 CI | P1 | Reference env、compatibility matrix、synthetic integration、numerical regressions | 與 W1–W5 並行；不依賴 raw 公開 | 待建立 |
+| W1 Run identity 與 safe resume | P0 | Immutable manifests、完整性、partial report 分流、歷史 inventory | 無 | [#7](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/7) |
+| W2 Session/epoch schema 與 ingestion QA | P0 | 一對一 events、typed QA、多 sessions、stable epoch IDs | W1 的 identity 格式；可並行設計 | [#8](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/8) |
+| W3 固定模型與可稽核 evaluation | P1 | Fit/predict/score、split invariants、no-target-fit、artifact | W1、W2；正式 freeze 需 W4/W7 | [#11](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11) |
+| W4 前瞻收案協定與 precision plan | P1 | Primary/secondary、N、排除、A/B protocol、鎖定 gates | W2 schema；可與 W1/W3 並行規劃 | [#9](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/9) |
+| W5 Result contract 與受試者層級報告 | P1 | Prediction-derived metrics、paired Δ、uncertainty、完整圖表 gate | W1、W2；external report 需 W3/W4 | [#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) |
+| W6 有限的相位／量測控制實驗 | P2 | 新協定上的 matched α-PLV/iPLV/ciPLV、reference/artifact control | W1–W5、W7 與新資料；獨立 protocol | [#13](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/13) |
+| W7 固定研究環境與高風險 CI | P1 | Reference env、compatibility matrix、synthetic integration、numerical regressions | 與 W1–W5 並行；不依賴 raw 公開 | [#10](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10) |
 
 建議實作 PR 順序：**W1 → W2 → W3**；W4 提前規劃、W5/W7 隨各階段建立 gate。W4 不是「先填完所有未知才可以修程式」的阻擋條件；但必須在正式新 cohort 的確認性收案與解盲前完成。
 
