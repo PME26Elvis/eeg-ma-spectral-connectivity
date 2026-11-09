@@ -256,6 +256,8 @@ flowchart TD
 
 研究的 [完整結果摘要](docs/final_results_summary.md)、[方法定義](docs/method_definition.md)、[分類原始結果](results/final_validation/final_validation_summary.csv) 與 [最終圖表](results/final_figures/) 可供進一步查閱。
 
+後續研究的優先順序、可重現性改善與獨立新受試者驗證設計，整理於 [研究與工程路線圖](docs/roadmap.md) 及 [獨立驗證協定草案](docs/confirmatory_protocol.md)。
+
 主要文獻：
 
 1. So *et al.*, “An evaluation of mental workload with frontal EEG,” *PLoS ONE*, 2017. [DOI](https://doi.org/10.1371/journal.pone.0174949)
