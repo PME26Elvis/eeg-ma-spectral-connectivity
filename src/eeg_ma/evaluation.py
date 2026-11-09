@@ -24,12 +24,9 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     and compares all three classifiers on exactly the same selected subset.
     This interpretation is explicit in docs/method_definition.md and config.
     """
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    features = _validate_evaluation_input(features, cfg)
+    out_dir = _new_output_dir(out_dir)
     fcols = feature_columns(features, str(cfg.get("feature_set", "all")))
-    random_state = int(cfg["cv"]["random_state"])
-    outer_folds = int(cfg["cv"]["intra_outer_folds"])
-    inner_folds = int(cfg["cv"]["intra_inner_folds"])
 
     fold_rows: List[Dict[str, object]] = []
     pred_rows: List[Dict[str, object]] = []
@@ -43,17 +40,10 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
             y = df["class_label"].to_numpy(dtype=int)
             _assert_binary_balance(y, f"intra {subject} {comparison}")
 
-            outer = StratifiedKFold(n_splits=outer_folds, shuffle=True, random_state=random_state)
-            for outer_fold, (train_idx, test_idx) in enumerate(outer.split(X, y), start=1):
+            for outer_fold, train_idx, test_idx, inner_splits in _evaluation_indices(df, cfg, "intra"):
                 Xtr, Xte = X[train_idx], X[test_idx]
                 ytr, yte = y[train_idx], y[test_idx]
 
-                inner = StratifiedKFold(
-                    n_splits=inner_folds,
-                    shuffle=True,
-                    random_state=random_state + outer_fold,
-                )
-                inner_splits = list(inner.split(Xtr, ytr))
                 sfs = forward_select_lda(
                     Xtr, ytr, fcols, inner_splits,
                     max_features=cfg["sfs"].get("max_features"),
@@ -100,6 +90,7 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
                     })
                     for local_i, p in zip(test_idx, pred):
                         pred_rows.append({
+                            **_prediction_metadata(df.iloc[local_i]),
                             "subject_id": subject,
                             "comparison": comparison,
                             "outer_fold": outer_fold,
@@ -122,8 +113,8 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
 
 def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Run leakage-safe outer LOPO-CV with group-aware inner validation."""
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    features = _validate_evaluation_input(features, cfg)
+    out_dir = _new_output_dir(out_dir)
     fcols = feature_columns(features, str(cfg.get("feature_set", "all")))
 
     fold_rows: List[Dict[str, object]] = []
@@ -139,15 +130,12 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
         if len(unique_groups) < 3:
             raise ValueError("Inter-subject LOPO 至少需要 3 位受試者，才能保留 outer test 並在 training groups 做 inner LOPO。")
 
-        outer = LeaveOneGroupOut()
-        for outer_fold, (train_idx, test_idx) in enumerate(outer.split(X, y, groups), start=1):
+        for outer_fold, train_idx, test_idx, inner_splits in _evaluation_indices(df, cfg, "inter"):
             Xtr, Xte = X[train_idx], X[test_idx]
             ytr, yte = y[train_idx], y[test_idx]
             gtr = groups[train_idx]
             held_out = str(np.unique(groups[test_idx])[0])
 
-            inner_logo = LeaveOneGroupOut()
-            inner_splits = list(inner_logo.split(Xtr, ytr, gtr))
             sfs = forward_select_lda(
                 Xtr, ytr, fcols, inner_splits,
                 max_features=cfg["sfs"].get("max_features"),
@@ -194,6 +182,7 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
                 })
                 for local_i, p in zip(test_idx, pred):
                     pred_rows.append({
+                        **_prediction_metadata(df.iloc[local_i]),
                         "held_out_subject": held_out,
                         "subject_id": str(groups[local_i]),
                         "comparison": comparison,
@@ -213,6 +202,109 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     _write_inter_summaries(folds, preds, out_dir)
     _write_feature_frequency(sfs_path, out_dir / "inter_feature_frequency.csv", mode="inter")
     return folds, preds
+
+
+def _validate_evaluation_input(features: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
+    """Keep historical learning semantics, but reject ambiguous typed inputs.
+
+    The low-level CV functions retain support for small, schema-less legacy
+    fixtures. Trusted CLI runs require schema v2 or an explicit legacy adapter
+    before calling these functions; no acquisition identity is invented here.
+    """
+    required = {"subject_id", "comparison", "class_label"}
+    if features.empty or not required.issubset(features.columns):
+        raise ValueError("Evaluation needs non-empty subject/comparison/class labels")
+    for key in ("subject_id", "comparison"):
+        if features[key].isna().any() or features[key].astype(str).str.strip().eq("").any():
+            raise ValueError(f"Missing evaluation identity: {key}")
+    if "schema_version" in features or "epoch_id" in features:
+        from .schema import validate_feature_table
+        validate_feature_table(features)
+    labels = pd.to_numeric(features["class_label"], errors="raise")
+    if labels.isna().any() or not set(labels.unique()).issubset({0, 1}):
+        raise ValueError("class_label must contain only binary labels 0 and 1")
+    fcols = feature_columns(features, str(cfg.get("feature_set", "all")))
+    if not np.isfinite(features[fcols].to_numpy(dtype=float)).all():
+        raise ValueError("Evaluation features contain NaN or Inf")
+    return features
+
+
+def _new_output_dir(path: str | Path) -> Path:
+    from .provenance import protect_output
+    path = protect_output(path)
+    if path.is_symlink() or (path.exists() and (not path.is_dir() or any(path.iterdir()))):
+        raise FileExistsError(f"Refusing to overwrite evaluation output: {path}; use a new run or validated resume")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _prediction_metadata(row: pd.Series) -> Dict[str, object]:
+    if "epoch_id" not in row.index:
+        return {"identity_status": "legacy_untracked"}
+    from .schema import META_COLUMNS
+    return {**{key: row[key] for key in META_COLUMNS}, "identity_status": "schema_validated"}
+
+
+def _evaluation_indices(df: pd.DataFrame, cfg: Dict, scope: str):
+    """Single source of truth for execution and the recorded split manifest.
+
+    Preserve the historical row ordering and splitter parameters. Row-order
+    changes therefore change the identity of an intra-subject run, rather than
+    silently claiming to reproduce the historical randomized split.
+    """
+    y = df["class_label"].to_numpy(dtype=int)
+    X = np.zeros((len(df), 1))
+    if scope == "intra":
+        _assert_binary_balance(y, "intra")
+        seed = int(cfg["cv"]["random_state"])
+        outer = StratifiedKFold(n_splits=int(cfg["cv"]["intra_outer_folds"]), shuffle=True, random_state=seed)
+        for fold, (train, test) in enumerate(outer.split(X, y), start=1):
+            inner = StratifiedKFold(n_splits=int(cfg["cv"]["intra_inner_folds"]), shuffle=True, random_state=seed + fold)
+            yield fold, train, test, list(inner.split(X[train], y[train]))
+    elif scope == "inter":
+        groups = df["subject_id"].astype(str).to_numpy()
+        if len(np.unique(groups)) < 3:
+            raise ValueError("Inter-subject LOPO requires at least 3 participants")
+        for fold, (train, test) in enumerate(LeaveOneGroupOut().split(X, y, groups), start=1):
+            inner = list(LeaveOneGroupOut().split(X[train], y[train], groups[train]))
+            yield fold, train, test, inner
+    else:
+        raise ValueError(f"Unknown evaluation scope: {scope}")
+
+
+def make_evaluation_splits(features: pd.DataFrame, cfg: Dict, scope: str) -> List[Dict[str, object]]:
+    """Return the exact outer/inner epoch membership used by the CV runners.
+
+    Unlike the low-level numerical compatibility API, manifests require
+    versioned epoch identity; legacy tables must first be explicitly mapped.
+    """
+    from .schema import validate_feature_table
+    validate_feature_table(features)
+    _validate_evaluation_input(features, cfg)
+    manifest = []
+    for comparison in sorted(features["comparison"].unique()):
+        comp = features.loc[features["comparison"] == comparison]
+        if scope == "intra":
+            frames = [(s, comp.loc[comp["subject_id"].astype(str) == s].reset_index(drop=True))
+                      for s in sorted(comp["subject_id"].astype(str).unique())]
+        elif scope == "inter":
+            frames = [(None, comp.reset_index(drop=True))]
+        else:
+            raise ValueError(f"Unknown evaluation scope: {scope}")
+        for subject, frame in frames:
+            ids = frame["epoch_id"].astype(str).to_numpy()
+            groups = frame["subject_id"].astype(str).to_numpy()
+            for fold, train, test, inner in _evaluation_indices(frame, cfg, scope):
+                train_ids = ids[train]
+                row = {"comparison": str(comparison), "outer_fold": fold,
+                       "train_epoch_ids": ids[train].tolist(), "test_epoch_ids": ids[test].tolist(),
+                       "train_subject_ids": sorted(set(groups[train])),
+                       "test_subject_ids": sorted(set(groups[test])),
+                       "inner_splits": [{"train_epoch_ids": train_ids[a].tolist(),
+                                         "test_epoch_ids": train_ids[b].tolist()} for a, b in inner]}
+                row["subject_id" if scope == "intra" else "held_out_subject"] = subject if scope == "intra" else str(groups[test][0])
+                manifest.append(row)
+    return manifest
 
 
 def _assert_binary_balance(y: np.ndarray, label: str) -> None:

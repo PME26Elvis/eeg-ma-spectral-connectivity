@@ -10,7 +10,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description="2–50 Hz preprocessing + 42 BP + 126 COH feature extraction")
     p.add_argument("--raw-root", default="data/raw")
     p.add_argument("--config", default="configs/lab_replication.json")
-    p.add_argument("--out-dir", default="data/features")
+    p.add_argument("--out-dir", default="outputs/features/baseline")
     args = p.parse_args()
 
     cfg = load_config(args.config)

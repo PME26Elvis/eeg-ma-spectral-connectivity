@@ -1,5 +1,7 @@
 # PLV decomposition：E2a / E2b / E2c / E3
 
+> **執行契約更新（Issues #7／#8）：** 本頁保留歷史實驗與封存目錄的說明。目前新執行一律寫入 `outputs/`，矩陣摘要經由 `CURRENT.json` 指向 `reports/<report_id>/`；歷史特徵需明確 legacy mapping，新 raw 需 schema 2.0 metadata 與共同 QA。請先依 [完整流程與遷移指南](integrity_workflow.md) 選擇新資料或歷史重現路徑。不要將此頁的封存 `results/`／`data/features/` 路徑當成新輸出目的地。
+
 本文件定義 E2 發現之後的下一批 feature-family decomposition。目的不是繼續無限制搜尋最高 accuracy，而是回答一個已經由 E2 結果提出的具體問題：**Rest1 vs Type1 的跨受試者改善究竟主要來自 PLV 本身，還是 PLV 與既有 BP / COH 的互補？**
 
 Poster/Lab baseline 與 E1/E2 原結果全部保持不變。這批實驗沿用相同的 preprocessing、epochs、SFS、classifier、RBF grid、random state、intra 5-fold 與 inter LOPO；唯一改變的是 SFS 可見的 candidate feature families。
@@ -82,25 +84,25 @@ results/extensions/e2_plv/...
 只跑四個 primary experiments：
 
 ```bash
-python scripts/10_run_plv_decomposition.py
+python scripts/10_run_plv_decomposition.py --legacy-manifest configs/legacy_discovery_mapping.json
 ```
 
 算力與時間足夠時，可連 secondary E2d 一起跑：
 
 ```bash
-python scripts/10_run_plv_decomposition.py --include-secondary
+python scripts/10_run_plv_decomposition.py --legacy-manifest configs/legacy_discovery_mapping.json --include-secondary
 ```
 
 若長時間運算中斷，已完成 experiment 可以保留，續跑時使用：
 
 ```bash
-python scripts/10_run_plv_decomposition.py --include-secondary --resume
+python scripts/10_run_plv_decomposition.py --legacy-manifest configs/legacy_discovery_mapping.json --include-secondary --resume
 ```
 
 也可以只指定特定 experiment：
 
 ```bash
-python scripts/10_run_plv_decomposition.py \
+python scripts/10_run_plv_decomposition.py --legacy-manifest configs/legacy_discovery_mapping.json \
   --experiments e2a_plv_only e2b_bp_plv
 ```
 

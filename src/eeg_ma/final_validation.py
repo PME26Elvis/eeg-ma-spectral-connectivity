@@ -8,9 +8,11 @@ import pandas as pd
 
 from .constants import band_items, channel_pairs
 from .extract import META_COLUMNS
-from .extensions import ALIGN_COLUMNS, analytic_phase_continuous
-from .io import discover_session_dirs, load_session
+from .extensions import analytic_phase_continuous
 from .preprocess import EpochRecord, extract_protocol_epochs, filter_continuous
+from .qa import preflight_sessions, exclusion_table
+from .schema import (SCHEMA_VERSION, assert_output_available, assert_same_epochs, load_feature_table,
+                     session_output_stem, write_feature_outputs)
 
 
 def iplv_from_phases(phase_a: np.ndarray, phase_b: np.ndarray) -> float:
@@ -46,18 +48,7 @@ def iplv_feature_names(
 
 
 def _record_metadata(record: EpochRecord) -> Dict[str, object]:
-    return {
-        "subject_id": record.subject_id,
-        "comparison": record.comparison,
-        "class_label": record.class_label,
-        "class_name": record.class_name,
-        "stage": record.stage,
-        "epoch_index": record.epoch_index,
-        "attempt_index": record.attempt_index,
-        "onset_elapsed_s": record.onset_elapsed_s,
-        "start_sample": record.start_sample,
-        "end_sample": record.end_sample,
-    }
+    return dict(record.metadata)
 
 
 def extract_iplv_session(
@@ -115,31 +106,27 @@ def extract_all_iplv_features(
     cfg: Dict,
     out_dir: str | Path,
     filter_order: int = 4,
+    *,
+    legacy_manifest=None,
 ) -> pd.DataFrame:
     """Build a separate versionable iPLV table for the final robustness check."""
     raw_root = Path(raw_root)
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    baseline = pd.read_csv(baseline_feature_path, encoding="utf-8-sig")
-    baseline["subject_id"] = baseline["subject_id"].astype(str)
-    sessions = discover_session_dirs(raw_root)
-    if not sessions:
-        raise FileNotFoundError(f"在 {raw_root} 找不到 eeg_raw.csv")
+    assert_output_available(out_dir)
+    baseline = load_feature_table(baseline_feature_path, legacy_manifest=legacy_manifest)
+    sessions = preflight_sessions(raw_root, cfg)
 
     frames: List[pd.DataFrame] = []
-    seen_subjects = set()
-
-    for session_dir in sessions:
-        session = load_session(session_dir, configured_fs=float(cfg["sampling_rate_hz"]))
+    output_tables = {}
+    for session in sessions:
         subject = str(session.subject_id)
-        if subject in seen_subjects:
-            raise ValueError(f"同一 subject_id 出現多個 raw session: {subject}")
-        seen_subjects.add(subject)
-
-        base_subject = baseline.loc[baseline["subject_id"] == subject].copy()
+        meta = session.metadata
+        mask = np.ones(len(baseline), dtype=bool)
+        for key in ("cohort_id", "subject_id", "session_id", "recording_id"):
+            mask &= baseline[key].eq(meta[key]).to_numpy()
+        base_subject = baseline.loc[mask].copy()
         if base_subject.empty:
-            raise ValueError(f"Baseline feature table 找不到 subject_id={subject}")
+            raise ValueError(f"Baseline feature table has no exact raw session identity for {subject}; re-extract a v2 baseline before iPLV")
 
         raw_x = session.raw[list(cfg["analysis_channels"])].to_numpy(dtype=float)
         baseline_preprocessed = filter_continuous(raw_x, session.sampling_rate_hz, cfg)
@@ -149,40 +136,13 @@ def extract_all_iplv_features(
             cfg,
             filter_order=int(filter_order),
         )
-        iplv_cols = [c for c in iplv.columns if c.startswith("IPLV__")]
-
-        # Preserve the canonical baseline metadata/timestamps and align on the
-        # integer/categorical epoch identity used by the E1/E2 feature merge.
-        meta = base_subject[META_COLUMNS].copy()
-        meta["__row_order"] = np.arange(len(meta))
-        aligned = meta.merge(
-            iplv[ALIGN_COLUMNS + iplv_cols],
-            on=ALIGN_COLUMNS,
-            how="left",
-            validate="one_to_one",
-        )
-        aligned = aligned.sort_values("__row_order").drop(columns="__row_order").reset_index(drop=True)
-        if len(aligned) != len(base_subject):
-            raise ValueError(f"{subject}: iPLV rows={len(aligned)}, baseline rows={len(base_subject)}")
-        if aligned[iplv_cols].isna().any().any():
-            raise ValueError(f"{subject}: iPLV 對齊後出現缺值")
-
-        safe_subject = "".join(
-            ch if ch.isalnum() or ch in "-_" else "_" for ch in subject
-        ).strip("_") or "subject"
-        aligned.to_csv(
-            out_dir / f"{safe_subject}_iplv.csv",
-            index=False,
-            encoding="utf-8-sig",
-        )
+        assert_same_epochs(base_subject, iplv)
+        aligned = iplv.set_index("epoch_id", drop=False).loc[base_subject["epoch_id"]].reset_index(drop=True)
+        output_tables[f"{session_output_stem(meta)}_iplv.csv"] = aligned
         frames.append(aligned)
 
-    missing_raw = sorted(set(baseline["subject_id"].unique()) - seen_subjects)
-    if missing_raw:
-        raise ValueError(f"Baseline 中有受試者缺少 raw session: {missing_raw}")
-
     combined = pd.concat(frames, ignore_index=True)
-    combined.to_csv(out_dir / "features_iplv.csv", index=False, encoding="utf-8-sig")
+    assert_same_epochs(baseline, combined)
 
     feature_cols = [c for c in combined.columns if c.startswith("IPLV__")]
     manifest = pd.DataFrame([
@@ -194,5 +154,14 @@ def extract_all_iplv_features(
             "definition": "abs(imag(mean(exp(1j*(phase_a-phase_b)))))",
         }
     ])
-    manifest.to_csv(out_dir / "iplv_manifest.csv", index=False, encoding="utf-8-sig")
+    output_tables.update({"features_iplv.csv": combined, "iplv_manifest.csv": manifest,
+                          "raw_validation.csv": pd.DataFrame([s.qa_report.as_dict() for s in sessions]),
+                          "excluded_trials.csv": exclusion_table(sessions)})
+    write_feature_outputs(out_dir, output_tables, {
+        "schema_version": SCHEMA_VERSION, "feature_family": "iplv", "config": cfg,
+        "filter_order": int(filter_order), "n_rows": len(combined),
+        "baseline_feature_sha256": baseline.attrs["source_feature_sha256"],
+        "sessions": [{"metadata": s.metadata, "source_hashes": s.source_hashes,
+                      "qa": s.qa_report.as_dict()} for s in sessions],
+    })
     return combined

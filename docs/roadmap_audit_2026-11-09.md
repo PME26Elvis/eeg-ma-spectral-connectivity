@@ -1,5 +1,7 @@
 # 後續規劃的程式與資料契約審查
 
+> 此頁是規劃時的版本限定稽核證據，保留當時的缺陷與重現結果。Issues #7／#8 的後續修正與使用方式見 [資料契約](data_contract.md)、[run provenance](run_provenance.md) 及 [完整流程](integrity_workflow.md)。
+
 日期：2026-11-09（Asia/Taipei）  
 檢查基準：[`df6b1394f0f68c4ce5a3c6659f09cc7fb918ecc1`](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/commit/df6b1394f0f68c4ce5a3c6659f09cc7fb918ecc1)
 

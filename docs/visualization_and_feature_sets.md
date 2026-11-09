@@ -1,5 +1,7 @@
 # BP-only / COH-only 與視覺化
 
+> **執行契約更新（Issues #7／#8）：** 本頁保留歷史實驗與封存目錄的說明。目前新執行一律寫入 `outputs/`，矩陣摘要經由 `CURRENT.json` 指向 `reports/<report_id>/`；歷史特徵需明確 legacy mapping，新 raw 需 schema 2.0 metadata 與共同 QA。請先依 [完整流程與遷移指南](integrity_workflow.md) 選擇新資料或歷史重現路徑。不要將此頁的封存 `results/`／`data/features/` 路徑當成新輸出目的地。
+
 本文件描述 feature extraction 完成後的延伸分析。`data/features/features_all.csv` 已包含未標準化的 42 BP + 126 COH features，因此 **BP-only / COH-only 不需要重新讀 raw EEG，也不需要重新抽 feature**。
 
 ## 1. Feature-set comparison
@@ -7,7 +9,7 @@
 執行：
 
 ```bash
-python scripts/06_compare_feature_sets.py
+python scripts/06_compare_feature_sets.py --legacy-manifest configs/legacy_discovery_mapping.json
 ```
 
 此腳本會沿用 `configs/lab_replication.json` 的：
@@ -59,7 +61,7 @@ results/feature_set_comparison.csv
 BP-only / COH-only 完成後執行：
 
 ```bash
-python scripts/07_make_figures.py
+python scripts/07_make_figures.py --allow-legacy-results
 ```
 
 預設輸出到：
@@ -165,13 +167,13 @@ RT 圖優先使用 median，是因為 unlimited-answer task 容易出現少數�
 預設 top 12 個 SFS features / COH connections：
 
 ```bash
-python scripts/07_make_figures.py --top-n 12
+python scripts/07_make_figures.py --allow-legacy-results --top-n 12
 ```
 
 若圖太擁擠，可改：
 
 ```bash
-python scripts/07_make_figures.py --top-n 8
+python scripts/07_make_figures.py --allow-legacy-results --top-n 8
 ```
 
 此參數只影響畫圖，不改變任何分類結果。

@@ -15,10 +15,11 @@ def main() -> int:
         description="Extract E1 hemispheric asymmetry and E2 PLV features without modifying baseline features"
     )
     p.add_argument("--raw-root", default="data/raw")
-    p.add_argument("--baseline-features", default="data/features/features_all.csv")
+    p.add_argument("--baseline-features", default="outputs/features/baseline/features_all.csv")
+    p.add_argument("--legacy-manifest", default=None, help="Explicit identity mapping for historical feature CSVs; raw extension still requires verified matching raw identity")
     p.add_argument("--config", default="configs/lab_replication.json")
     p.add_argument("--extension-config", default="configs/extensions_e1_e2.json")
-    p.add_argument("--out-dir", default="data/features/extensions")
+    p.add_argument("--out-dir", default="outputs/features/extensions")
     args = p.parse_args()
 
     cfg = load_config(args.config)
@@ -29,6 +30,7 @@ def main() -> int:
         cfg,
         extension_cfg,
         args.out_dir,
+        legacy_manifest=args.legacy_manifest,
     )
 
     asym = [c for c in out.columns if c.startswith("ASYM_")]

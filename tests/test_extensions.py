@@ -3,6 +3,7 @@ import pandas as pd
 
 from eeg_ma.constants import DEFAULT_BANDS, DEFAULT_CHANNELS, channel_pairs
 from eeg_ma.extract import META_COLUMNS, feature_columns
+from eeg_ma.schema import adapt_legacy_features
 from eeg_ma.extensions import (
     DEFAULT_HEMISPHERIC_PAIRS,
     add_asymmetry_features,
@@ -40,7 +41,17 @@ def _baseline_bp_frame():
         for band, _, _ in DEFAULT_BANDS:
             row[f"BP__{left}__{band}"] = 2.0
             row[f"BP__{right}__{band}"] = 4.0
-    return pd.DataFrame([row])
+    return _as_v2(pd.DataFrame([row]))
+
+
+def _as_v2(frame):
+    return adapt_legacy_features(frame, {"schema_version": "legacy-mapping-1", "subjects": {
+        subject: {"cohort_id": "synthetic", "session_id": "declared-single-session",
+                  "recording_id": "declared-unverified-recording", "source_sha256": "unknown",
+                  "units": "unknown", "reference": "unknown", "protocol_id": "test",
+                  "protocol_version": "unknown", "channel_order": "unknown"}
+        for subject in frame["subject_id"].unique()
+    }})
 
 
 def test_e1_log_ratio_asymmetry_math_and_count():
@@ -122,13 +133,13 @@ def test_merge_extensions_is_one_to_one_and_preserves_baseline_order():
     b1["BP__FP1__delta"] = 10.0
     b2 = _meta_row("s1", 2)
     b2["BP__FP1__delta"] = 20.0
-    baseline = pd.DataFrame([b1, b2])
+    baseline = _as_v2(pd.DataFrame([b1, b2]))
 
     e1 = _meta_row("s1", 1)
     e1["ASYM_LOGRATIO__FP1__FP2__delta"] = 0.1
     e2 = _meta_row("s1", 2)
     e2["ASYM_LOGRATIO__FP1__FP2__delta"] = 0.2
-    extensions = pd.DataFrame([e2, e1])
+    extensions = _as_v2(pd.DataFrame([e2, e1]))
 
     merged = merge_baseline_and_extensions(baseline, extensions)
     assert merged["epoch_index"].tolist() == [1, 2]

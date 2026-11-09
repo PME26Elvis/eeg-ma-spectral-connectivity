@@ -1,5 +1,7 @@
 # 最後一輪方法驗證：PLV band specificity + iPLV robustness
 
+> **執行契約更新（Issues #7／#8）：** 本頁保留歷史實驗與封存目錄的說明。目前新執行一律寫入 `outputs/`，矩陣摘要經由 `CURRENT.json` 指向 `reports/<report_id>/`；歷史特徵需明確 legacy mapping，新 raw 需 schema 2.0 metadata 與共同 QA。請先依 [完整流程與遷移指南](integrity_workflow.md) 選擇新資料或歷史重現路徑。不要將此頁的封存 `results/`／`data/features/` 路徑當成新輸出目的地。
+
 本文件定義本專題在同一批 5 位受試者資料上的**最後一輪 feature-engineering / representation 實驗**。
 
 這一輪不是繼續追逐最高 accuracy，而是回答前一階段 PLV 結果留下的兩個方法學問題。完成後，除非發現程式或方法定義錯誤，**停止在相同 5 位受試者上新增 feature family / classifier 組合**，轉入結果統整、圖表、投影片與報告撰寫。
@@ -162,13 +164,13 @@ iPLV range=[0, 1] 內
 接著跑最後矩陣：
 
 ```bash
-python scripts/12_run_final_validation.py
+python scripts/12_run_final_validation.py --legacy-manifest configs/legacy_discovery_mapping.json
 ```
 
 中斷後可：
 
 ```bash
-python scripts/12_run_final_validation.py --resume
+python scripts/12_run_final_validation.py --legacy-manifest configs/legacy_discovery_mapping.json --resume
 ```
 
 正式矩陣固定為：

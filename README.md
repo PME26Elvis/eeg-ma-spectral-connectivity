@@ -258,6 +258,8 @@ flowchart TD
 
 後續研究的優先順序、可重現性改善與獨立新受試者驗證設計，整理於 [研究與工程路線圖](docs/roadmap.md) 及 [獨立驗證協定草案](docs/confirmatory_protocol.md)。
 
+資料入口與執行完整性的實作，見 [session／epoch 資料契約](docs/data_contract.md)、[run manifest 與安全續跑](docs/run_provenance.md) 及 [完整流程與歷史資料遷移](docs/integrity_workflow.md)。新分析寫入獨立輸出目錄；此頁引用的既有特徵、分數與圖表維持封存。
+
 主要文獻：
 
 1. So *et al.*, “An evaluation of mental workload with frontal EEG,” *PLoS ONE*, 2017. [DOI](https://doi.org/10.1371/journal.pone.0174949)

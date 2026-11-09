@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -8,6 +8,7 @@ import pandas as pd
 from scipy import signal
 
 from .io import SessionData
+from .schema import make_epoch_metadata
 
 
 @dataclass
@@ -23,6 +24,7 @@ class EpochRecord:
     start_sample: int
     end_sample: int
     data: np.ndarray  # shape: samples x channels
+    metadata: Dict = field(default_factory=dict)
 
 
 def filter_continuous(raw_values: np.ndarray, fs: float, cfg: Dict) -> np.ndarray:
@@ -50,6 +52,13 @@ def filter_continuous(raw_values: np.ndarray, fs: float, cfg: Dict) -> np.ndarra
 
 
 def extract_protocol_epochs(session: SessionData, filtered: np.ndarray, cfg: Dict) -> List[EpochRecord]:
+    from .qa import validate_session
+    report = validate_session(session, cfg)
+    report.raise_for_errors()
+    if filtered.ndim != 2 or filtered.shape != (len(session.raw), len(cfg["analysis_channels"])):
+        raise ValueError("Filtered recording shape must match raw samples and configured analysis channels")
+    if not np.isfinite(filtered).all():
+        raise ValueError("Filtered recording contains NaN/Inf")
     fs = float(session.sampling_rate_hz)
     epoch_samples = int(round(float(cfg["epoch_seconds"]) * fs))
     events = session.events.copy()
@@ -61,6 +70,7 @@ def extract_protocol_epochs(session: SessionData, filtered: np.ndarray, cfg: Dic
     # elapsed_ms directly. This removes the small setup offset while keeping all
     # epoch onsets on the acquisition clock.
     session_start_rows = events.loc[events["marker_code"].astype(int) == 1]
+    # Missing SessionStart is reachable only after an explicit legacy_zero QA policy.
     timeline_zero_ms = float(session_start_rows["elapsed_ms"].iloc[0]) if len(session_start_rows) else 0.0
 
     records: List[EpochRecord] = []
@@ -127,7 +137,7 @@ def _slice_record(
     data = np.asarray(filtered[start:end], dtype=float)
     if data.shape[0] != epoch_samples:
         raise ValueError("epoch sample 數不完整")
-    return EpochRecord(
+    record = EpochRecord(
         subject_id=session.subject_id,
         comparison=comparison,
         class_label=class_label,
@@ -140,6 +150,15 @@ def _slice_record(
         end_sample=end,
         data=data,
     )
+    row = {key: getattr(record, key) for key in (
+        "subject_id", "comparison", "class_label", "class_name", "stage", "epoch_index",
+        "attempt_index", "onset_elapsed_s", "start_sample", "end_sample",
+    )}
+    record.metadata = make_epoch_metadata(
+        session.metadata, row, qc_status=session.qa_report.status,
+        qc_reason_codes=session.qa_report.reason_codes,
+    )
+    return record
 
 
 def _check_expected_count(session: SessionData, comparison: str, label: str, rows: pd.DataFrame, cfg: Dict) -> None:
