@@ -1,0 +1,241 @@
+{
+  "schema_version": "eeg-protocol-readiness-1",
+  "protocol_path": "configs/confirmatory_protocol.json",
+  "protocol_sha256": "1549e8c032c4ae187a1887d466139b9a69f3505be9facdaf8267651dcad553cd",
+  "validator_path": "src/eeg_ma/protocol.py",
+  "validator_sha256": "6608b41d9dcde7ef373a59c0b67c137fbbb1ca65b28940d09ef006391fb77c10",
+  "scope": "decision_readiness_and_available_file_hashes; not_a_live_study_lock_or_registration",
+  "available_artifacts": [
+    {
+      "role": "development_manifest",
+      "sha256": "c13733e2775c6ec2716393fe400a2d80498f022905e3b8cbc721ccf0da2b4a5f",
+      "bytes_verified": true
+    },
+    {
+      "role": "development_data_manifest",
+      "sha256": "2a63546ad12098959e011ac040275d06f8a4b82c71176a833fb1c50ae86c7e9d",
+      "bytes_verified": true
+    },
+    {
+      "role": "analysis_config",
+      "sha256": "e0583d74352d21288614c19cfe58436228be10282644475f1b4ef5088a5c0ee2",
+      "bytes_verified": true
+    },
+    {
+      "role": "feature_schema",
+      "sha256": "1d092ce850f250bfba0f97c8a1c616ffc383f255a52404f71edc6587a0a23369",
+      "bytes_verified": true
+    },
+    {
+      "role": "precision_report",
+      "sha256": "62761a840688fe13471f5851dca7d9eeb3c3d2286fdf936f6984be293d42035a",
+      "bytes_verified": true
+    }
+  ],
+  "decision_readiness": {
+    "status": "blocked",
+    "ready_to_lock": false,
+    "findings": [
+      {
+        "code": "PENDING",
+        "path": "acquisition.units",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.device",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.reference",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.ground",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.evidence",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "PENDING",
+        "path": "approval.responsible_person",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "PENDING",
+        "path": "approval.approved_at",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "PENDING",
+        "path": "approval.ethics_status",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "PENDING",
+        "path": "approval.ethics_reference",
+        "message": "An explicit verified decision is required"
+      },
+      {
+        "code": "ACQUISITION_UNVERIFIED",
+        "path": "acquisition.verified",
+        "message": "Actual acquisition facts need operator verification"
+      },
+      {
+        "code": "VERIFICATION_PENDING",
+        "path": "acquisition.historical_alignment_verified",
+        "message": "The stated prospective condition must be verified"
+      },
+      {
+        "code": "VERIFICATION_PENDING",
+        "path": "approval.resource_commitment_confirmed",
+        "message": "The stated prospective condition must be verified"
+      },
+      {
+        "code": "ARTIFACT_PENDING",
+        "path": "freeze.artifacts.environment",
+        "message": "Real file path and exact SHA-256 are required"
+      },
+      {
+        "code": "ARTIFACT_PENDING",
+        "path": "freeze.artifacts.primary_model",
+        "message": "Real file path and exact SHA-256 are required"
+      },
+      {
+        "code": "ARTIFACT_PENDING",
+        "path": "freeze.artifacts.reference_model",
+        "message": "Real file path and exact SHA-256 are required"
+      },
+      {
+        "code": "ARTIFACT_PENDING",
+        "path": "freeze.artifacts.primary_training_manifest",
+        "message": "Real file path and exact SHA-256 are required"
+      },
+      {
+        "code": "ARTIFACT_PENDING",
+        "path": "freeze.artifacts.reference_training_manifest",
+        "message": "Real file path and exact SHA-256 are required"
+      },
+      {
+        "code": "ARTIFACT_PENDING",
+        "path": "freeze.artifacts.acquisition_evidence",
+        "message": "Real file path and exact SHA-256 are required"
+      },
+      {
+        "code": "APPROVAL_PENDING",
+        "path": "approval.approved_at",
+        "message": "approval.approved_at must be an explicit timezone-aware timestamp"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.units",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.reference",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.ground",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.device",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "acquisition.evidence",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.environment.path",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.environment.sha256",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.primary_model.path",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.primary_model.sha256",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.reference_model.path",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.reference_model.sha256",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.primary_training_manifest.path",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.primary_training_manifest.sha256",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.reference_training_manifest.path",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.reference_training_manifest.sha256",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.acquisition_evidence.path",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "freeze.artifacts.acquisition_evidence.sha256",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "approval.responsible_person",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "approval.approved_at",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "approval.ethics_status",
+        "message": "Null is not a finalized decision"
+      },
+      {
+        "code": "PENDING",
+        "path": "approval.ethics_reference",
+        "message": "Null is not a finalized decision"
+      }
+    ]
+  }
+}

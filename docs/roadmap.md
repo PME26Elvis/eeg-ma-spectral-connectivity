@@ -6,7 +6,9 @@
 
 規劃 PR：[#6](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/pull/6)；實作追蹤見第 6 節的獨立 Issues。
 
-W1（[#7](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/7)）與 W2（[#8](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/8)）已有實作：不可變 run manifest、完整性驗證與原子報告、schema 2.0、共用 ingestion QA、多 session 與明確 legacy adapter。操作與遷移見 [完整流程](integrity_workflow.md)；[歷史 inventory](manifests/legacy_discovery_inventory.json) 僅記錄現存 bytes，未回填未知生成環境。下列缺口表保留規劃時的證據；W3–W7 依原 Issues 持續追蹤。
+W1（[#7](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/7)）與 W2（[#8](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/8)）已有實作：不可變 run manifest、完整性驗證與原子報告、schema 2.0、共用 ingestion QA、多 session 與明確 legacy adapter。操作與遷移見 [完整流程](integrity_workflow.md)；[歷史 inventory](manifests/legacy_discovery_inventory.json) 僅記錄現存 bytes，未回填未知生成環境。
+
+**M3／W4（[#9](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/9)）的設計與工程 gates 亦已實作**：前瞻決策設定、participant-level precision simulation、收案與 replacement 稽核、artifact lock、outcome-access 邊界及 amendment ledger。設計選定 **60 位可評估受試者、招募上限 94 人**；[協定](confirmatory_protocol.md)、[gate 操作](protocol_gate.md) 與 [precision 證據](precision/README.md) 記錄完整規則。研究仍為 **`DRAFT`／`not_registered`**，真實 acquisition、[#11 固定模型](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11)、[#10 研究環境](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10)、資源與必要核准尚待完成，沒有已完成的 live study lock。下列缺口表保留規劃時的證據；W3／W5／W6／W7 依原 Issues 持續追蹤。
 
 ## 1. 方向與決策
 
@@ -114,15 +116,17 @@ flowchart TD
 
 **完成條件：** synthetic development→artifact→external prediction→score 可完整執行；spy tests 證明 external rows/labels 不進 `fit`；artifact round-trip predictions 一致；feature order 與 cohort overlap 失配立即失敗。
 
-### M3：前瞻協定與收案就緒
+### M3：前瞻協定與收案 gate
 
 主要研究預設為 **A：量測與歷史任務定義協調一致的獨立新 cohort**，回答固定模型能否泛化到新的人。這仍可能包含固定流程訊號，只能支持該 protocol 下的狀態辨識。
 
-**B：多 block、平衡順序、匹配視覺／反應安排的 controlled protocol** 另有 protocol ID；預先列為 secondary session 或下一 study。B 用來檢驗認知解釋與 protocol transport，不能於解盲後拿 A/B 較高者當主要結果。同一人的 A/B sessions 不增加獨立人數。[R2]
+**B：多 block、平衡順序、匹配視覺／反應安排的 controlled protocol** 另有 protocol ID，且在本版明確設為 **`enabled=false`、`next_study`**。啟用 B 需要另一次 study lock 與 acquisition feasibility 證據；不能在 A 解盲後把 B 升格為主要分析。B 用來檢驗認知解釋與 protocol transport，同一人的 A/B sessions 不增加獨立人數。[R2]
 
-收案前封存 primary、eligibility/QC 數值、reference/units、N、招募上限、停止規則、CI 方法與實用門檻。這些目前未定的實驗參數是**啟動 gate**，不妨礙現在提交工程與研究規劃；文件合併也不等於外部 preregistration 已完成。
+**已交付的設計與工程：** [前瞻協定](confirmatory_protocol.md) 固定 primary／reference、eligibility/QC 與 session 預算、replacement、stopping、CI、解讀門檻與 multiplicity；[protocol gate](protocol_gate.md) 實作具 evidence binding 的 draft→locked→outcome-accessed 邊界、完整累積 cohort／enrollment 稽核與 amendment ledger。真實 acquisition facts、訓練模型及環境 bytes、development identities 與核准缺失時，正式 lock 會被阻擋。
 
-**完成條件：** protocol 狀態可從 draft 轉為 locked；所有必填欄位有依據；沒有看過 confirmatory performance 才決定的門檻；新的 development data 若被使用，另留未見的 holdout。
+[Precision plan](precision/README.md) 以明列的 16 個合成 stress scenarios，選出 **N=60 位可評估受試者、cap=94 位招募者**。在最低 retention **0.7125** 假設下，達成 N 的精確二項完成機率為 **0.9533**。最終驗證使用每情境 1,000 次合成研究、每次 10,000 participant bootstrap resamples；primary CI half-width p90 最大為 **0.0744**，符合 0.08 規劃目標。Pointwise Monte Carlo coverage 下界 ≥0.90 是宣告的 adequacy tolerance，不能解讀成已證明 nominal 95% 或任意母群體 coverage。配對 Δ 的精度與 informative QC 的選擇偏差另外保留，不因 primary precision 合格而宣稱已足以確認小幅改善。
+
+**待完成的 live launch 條件：** 研究維持 `DRAFT`／`not_registered`；確認設備、reference、ground、units 與現場可行性，完成 W3 的固定模型及訓練證據、W7 的研究環境，以及責任人與必要核准後，才能對實際研究產物建立 lock。所有必填欄位須有真實依據，且不得看過 confirmatory performance 才決定門檻。新的 development data 若被使用，另留未見的 holdout。此階段工程已交付，不等於已收案、已外部 preregistration 或已完成獨立驗證。
 
 ### M4：一次完整的獨立驗證
 
@@ -161,28 +165,31 @@ Calibration/EA 若使用 held-out subject 的整段測試資料估轉換，必�
 | `splits.py`／split manifest | 以 stable IDs 保存 subject/session/block membership | `evaluation.py`、SFS／tuning |
 | `inference.py`／model manifest | Development-only fit、artifact、predict-only | `models.py`、`sfs.py` |
 | `reporting.py`／result schema | OOF/external rows→participant metrics→validated tables/figures | existing summaries、scripts 07/13 |
+| `precision.py`／precision report（#9 已實作） | Participant bootstrap、有限情境 CI precision／coverage、exact recruitment assurance | script 15、[完整規劃證據](precision/README.md) |
+| `protocol.py`／lock bundle（#9 已實作） | Artifact 身分、launch／outcome boundary、amendment ledger | script 16、[gate 操作](protocol_gate.md) |
+| `cohort_policy.py`／enrollment audit（#9 已實作） | Person-level eligibility、session／replacement／stopping 規則 | script 17、[前瞻協定](confirmatory_protocol.md) |
 
-上述名稱是建議介面，不是本 PR 已新增的 API。先抽出共用 run lifecycle，再逐支遷移 runner；避免同時重寫所有演算法造成歷史結果不可追溯。資料量仍小，CSV/JSON 即可；未有性能測量前不加入複雜快取平台。
+表中標示 #9 的模組已有實作；其他建議名稱是否交付，依對應 Issue 與實際 API 為準。持續沿用共用 run lifecycle，再逐支遷移 runner；避免同時重寫所有演算法造成歷史結果不可追溯。資料量仍小，CSV/JSON 即可；未有性能測量前不加入複雜快取平台。
 
 預期產物關係為：`dataset manifest → extraction manifest → split/model manifest → predictions → metrics → report`。每一步只接受具名、相容、已完成的上游輸出，並保存父產物 hash；raw 與本地受試者對照表不需公開到 repo。
 
 ## 6. 可執行工作包與依賴
 
-每個 Issue 具有具體交付、測試與排除範圍；本規劃 PR 的合併不代表這些實作工作已完成。
+每個 Issue 具有具體交付、測試與排除範圍。W1／W2 與 W4 的設計及工程 gates 已交付；其餘工作包與正式研究啟動分別追蹤，文件或程式合併不代表研究已開始。
 
 | 工作包 | 優先級 | 交付摘要 | 前置依賴 | GitHub tracking |
 | :-- | :-- | :-- | :-- | :-- |
 | W1 Run identity 與 safe resume | P0 | Immutable manifests、完整性、partial report 分流、歷史 inventory | 無 | [#7](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/7) |
 | W2 Session/epoch schema 與 ingestion QA | P0 | 一對一 events、typed QA、多 sessions、stable epoch IDs | W1 的 identity 格式；可並行設計 | [#8](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/8) |
 | W3 固定模型與可稽核 evaluation | P1 | Fit/predict/score、split invariants、no-target-fit、artifact | W1、W2；正式 freeze 需 W4/W7 | [#11](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11) |
-| W4 前瞻收案協定與 precision plan | P1 | Primary/secondary、N、排除、A/B protocol、鎖定 gates | W2 schema；可與 W1/W3 並行規劃 | [#9](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/9) |
+| W4 前瞻收案協定與 precision plan | P1 | **設計與 gates 已實作**；N=60／cap=94、A primary／B disabled、QC／收案稽核、lock／outcome／amendment | 正式 live lock 仍需真實 acquisition、W3／W7 與核准 | [#9](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/9) |
 | W5 Result contract 與受試者層級報告 | P1 | Prediction-derived metrics、paired Δ、uncertainty、完整圖表 gate | W1、W2；external report 需 W3/W4 | [#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) |
 | W6 有限的相位／量測控制實驗 | P2 | 新協定上的 matched α-PLV/iPLV/ciPLV、reference/artifact control | W1–W5、W7 與新資料；獨立 protocol | [#13](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/13) |
 | W7 固定研究環境與高風險 CI | P1 | Reference env、compatibility matrix、synthetic integration、numerical regressions | 與 W1–W5 並行；不依賴 raw 公開 | [#10](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10) |
 
-建議實作 PR 順序：**W1 → W2 → W3**；W4 提前規劃、W5/W7 隨各階段建立 gate。W4 不是「先填完所有未知才可以修程式」的阻擋條件；但必須在正式新 cohort 的確認性收案與解盲前完成。
+接續順序為：在已交付的 **W1／W2／W4** 上完成 **W3 固定模型與 W7 研究環境**，並以 W5 串起 prediction-derived reporting。W4 的程式會檢查實際 study evidence；取得 acquisition、資源與核准後，才能建立正式 lock，且必須在確認性收案與 outcome access 前通過相關 gate。
 
-新 cohort 主評估需 W1–W5/W7 全部就緒。W6 的控制 protocol 可以在事先鎖定後安排收集，不必等主要結果成功；結果分析與原 primary 分開，避免以控制實驗挑選最好的測試條件。
+新 cohort 主評估需 W1–W5/W7 全部就緒。W6 的 B 控制 protocol 目前停用，屬下一 study；取得獨立 lock 後才能安排收集，不必以主要結果成功作為啟動條件。結果分析與原 primary 分開，避免以控制實驗挑選最好的測試條件。
 
 ## 7. 可重現性與驗證策略
 
@@ -205,7 +212,7 @@ Calibration/EA 若使用 held-out subject 的整段測試資料估轉換，必�
 
 ### 下一個可以直接開工的 checkpoint
 
-**W1＋W2 已建立實作與失敗情境的 regression tests。** 下一步讓 W4 從草案變成可鎖定的協定，並完成 W3/W5/W7 的 synthetic 全流程，才對新受試者資料啟動正式固定模型驗證。沒有新受試者期間，仍可完成以上工程，不需再對五人資料找更高分數。
+**W1／W2／W4 的工程與失敗情境 gates 已建立。** 下一步完成 [#11 固定模型](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11)、[#10 研究環境](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10) 與 [#12 prediction-derived reporting](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) 的 synthetic 全流程，同時取得實際 acquisition、資源與核准證據。通過 [live lock／launch gate](protocol_gate.md) 後才進入新受試者研究；目前仍是 `DRAFT`／`not_registered`。沒有新受試者期間，仍可完成以上工程，不需再對五人資料找更高分數。
 
 ## 參考資料
 

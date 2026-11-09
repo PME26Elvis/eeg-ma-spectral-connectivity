@@ -252,6 +252,16 @@ flowchart TD
 
 本研究的分析共使用 **5 位受試者**，且多個特徵假說與頻帶比較皆源自同一批資料。因此 **74.1% 是目前資料的探索性 LOPO 結果**，不應視為已在獨立新受試者樣本中確認的準確率。
 
+## 獨立驗證協定的工程進度
+
+[#9](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/9) 已交付前瞻協定的設計與執行 gate：固定 primary／reference 定義、受試者層級 precision simulation、收案與 QC／replacement 規則、不可變 artifact lock、outcome-access 邊界及 amendment ledger。主要研究採 **A：與歷史任務協調、具有明確預算上限的新 cohort**；控制 protocol **B 明確停用，留待另行鎖定的下一 study**。
+
+目前設計選定 **60 位可評估的新受試者、招募上限 94 人**。這個上限以 retention 至少 **0.7125** 為規劃假設，給出約 **95.33%** 達成目標人數的機率；CI 精度結論僅適用於明列的 16 個合成 stress scenarios。詳細假設、Monte Carlo 不確定性、配對差值精度及 attrition sensitivity，見 [precision plan 與完整模擬報告](docs/precision/README.md)。
+
+**研究狀態仍為 `DRAFT`／`not_registered`，尚未建立實際研究的 live lock。** 真實 acquisition／reference／units 的核實、[#11 固定模型與訓練證據](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11)、[#10 研究環境](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10)、現場資源與必要核准仍待完成。工程測試通過不代表已允許收案、已外部註冊或已取得獨立驗證結果。
+
+操作與範圍分別見 [獨立驗證協定](docs/confirmatory_protocol.md)、[protocol lock／launch gate](docs/protocol_gate.md) 與 [研究與工程路線圖](docs/roadmap.md)。
+
 ## 相關資料與參考文獻
 
 研究的 [完整結果摘要](docs/final_results_summary.md)、[方法定義](docs/method_definition.md)、[分類原始結果](results/final_validation/final_validation_summary.csv) 與 [最終圖表](results/final_figures/) 可供進一步查閱。

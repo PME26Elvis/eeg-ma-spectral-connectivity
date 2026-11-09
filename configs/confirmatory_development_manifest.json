@@ -1,0 +1,15 @@
+{
+  "schema_version": "eeg-development-manifest-1",
+  "cohort_id": "discovery-legacy",
+  "subject_ids": [
+    "irene",
+    "jh",
+    "lin",
+    "pftest",
+    "yen"
+  ],
+  "data_sha256": "2a63546ad12098959e011ac040275d06f8a4b82c71176a833fb1c50ae86c7e9d",
+  "feature_schema_sha256": "1d092ce850f250bfba0f97c8a1c616ffc383f255a52404f71edc6587a0a23369",
+  "provenance_status": "legacy_unverified",
+  "use": "development_only"
+}
