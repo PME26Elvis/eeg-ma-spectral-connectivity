@@ -82,6 +82,8 @@ jobs:
         run: .venv-reference/bin/python -m pytest --junitxml=outputs/reference/pytest.xml
       - name: Rebuild synthetic raw-to-report numerical fixture
         run: .venv-reference/bin/python scripts/19_validate_numerics.py --out-dir outputs/reference/numerical --require-reference-environment
+      - name: Verify fixed external CLIs from the clean reference checkout
+        run: .venv-reference/bin/python tests/run_external_reference_smoke.py --out-dir outputs/reference/fixed-external
       - name: Retain reference evidence and failure diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -87,7 +87,7 @@ python scripts/19_validate_numerics.py \
 
 保存後的 protocol lock 驗證使用其內嵌 definition、requirements、receipt 與觀察證據，不要求驗證者目前恰好也在相同 Python 上。相反地，開始新的 reference run 時必須檢查**當前實際環境**。這兩種檢查不能互相代替。
 
-`configs/confirmatory_protocol.json` 的 environment artifact 仍保留待實際 model training 產生的證據位置。Reference CI 的測試環境不是尚未訓練的模型之 training history；#11 產生 fitted artifacts 時必須同時保存其真實環境。scikit-learn 也不保證不同套件版本間的 persisted model loading 相容性。[3]
+`configs/confirmatory_protocol.json` 的 environment artifact 仍保留待實際 model training 產生的證據位置。Reference CI 的測試環境不是尚未訓練的模型之 training history；[#11 的 fit/export](fixed_external.md) 會同時保存真實 training environment，正式 external prediction 另驗證當前 runtime 使用相同 reference lock。不同 host 的完整 `environment_id` 可不同，每次觀察均保留。scikit-learn 也不保證不同套件版本間的 persisted model loading 相容性。[3]
 
 ## 5. Synthetic raw-to-report fixture
 
@@ -102,7 +102,7 @@ Public CI 只用程式產生的 deterministic synthetic acquisition；不下載�
 5. 執行 baseline／phase 兩個 feature families 與 LDA／SVM／KFDA 三個 classifiers，共 18 個外層 folds、288 筆 predictions；保存 stable epoch identity、splits、run manifest，再產生並驗證 report。
 6. 以保存的 expected values、tolerances、選取結果與 coverage 契約比較。
 
-這是 **grouped-CV regression fixture**。它不等於 #11 的固定模型 external prediction／score 管線，也不是 N60 的 confirmatory study。Fixture 的小規模與有限 SFS/grid 是測試設計；正式研究的設定不會被改成 smoke-test 參數。
+這是 **grouped-CV regression fixture**。它與 [#11 的固定模型 external prediction／score tests](fixed_external.md) 分開，兩者都不是 N60 的 confirmatory study。Fixture 的小規模與有限 SFS/grid 是測試設計；正式研究的設定不會被改成 smoke-test 參數。
 
 ### 數值容差與離散結果
 
@@ -137,6 +137,8 @@ Tests 使用相對應的破壞情境驗證拒絕路徑。原有 canonical invent
 ## 7. CI 與依賴升級的操作原則
 
 Compatibility 與 reference numerical jobs 名稱、環境來源與證據分開。自動 CI 只有有限 synthetic workload，不執行正式研究的完整 SFS／grid。Docs-only 修改不觸發昂貴研究矩陣；更新 numerical fixture、環境 lock、source、tests 或 workflow 時才觸發相應驗證。
+
+Reference job 也以 clean checkout、實際 code identity／UTC clock／reference verifier 執行 [fixed-external subprocess smoke](fixed_external.md)。它保存模型、protocol lock、label-free predictions、驗證輸出，並確認未完成 enrollment 時 scoring 在 labels access 前阻擋。完整成功 score 則由使用明示 synthetic chronology 的 lifecycle tests 驗證。這兩層證據保留於同一 reference artifact，沒有以虛構即時收案來滿足正式解盲 gate。
 
 手動 dependency comparison 需要 explicit candidate commit、run identity 與變更理由；分析程式與 synthetic input 固定，只從指定候選版本取得 environment 定義。輸入由資料欄位處理，不拼入可執行 shell。Reference 與 candidate 分別使用隔離環境、完整 receipt 與不可覆寫輸出，保存各自 lock／environment identity 及比較結果。
 
@@ -174,7 +176,7 @@ python scripts/20_prepare_environment_comparison.py \
 
 CI 綠燈代表這個有限 synthetic fixture 和現有契約在指定環境下通過。它不能證明真實 acquisition facts、原始 EEG 品質、研究倫理核准、固定模型泛化或 online BCI efficacy。
 
-#10 交付新研究環境與數值 CI；#11 仍需完成 development-only fit／export／predict／score，#12 仍需完成最終 participant-level reporting integration。前瞻協定仍由 [protocol gate](protocol_gate.md) 管理，模型、acquisition、核准等必要證據不足時，正式研究保持 blocked。
+#10 交付新研究環境與數值 CI；#11 已交付 [development-only fit／export／predict／score](fixed_external.md) 及其 synthetic lifecycle tests，#12 仍需完成最終 participant-level reporting integration。前瞻協定仍由 [protocol gate](protocol_gate.md) 管理，真實模型訓練、acquisition、核准等必要證據不足時，正式研究保持 blocked。
 
 ## 官方依據
 

@@ -151,7 +151,7 @@ def build_run_identity(features: pd.DataFrame, cfg: dict, scopes, *, input_paths
     from .schema import validate_feature_table
     validate_feature_table(features)
     from .extract import feature_columns
-    from .evaluation import make_evaluation_splits
+    from .evaluation import evaluation_contract, make_evaluation_splits
     if "epoch_id" not in features or features["epoch_id"].isna().any() or features["epoch_id"].astype(str).duplicated().any():
         raise ProvenanceError("Trusted runs require unique v2 epoch_id values; use an explicit legacy mapping")
     if "schema_version" not in features:
@@ -166,7 +166,7 @@ def build_run_identity(features: pd.DataFrame, cfg: dict, scopes, *, input_paths
     # Include values even when a caller builds a table in memory rather than reading CSV.
     table_hash = hashlib.sha256(features.to_csv(index=False, lineterminator="\n").encode("utf-8")).hexdigest()
     splits = {scope: make_evaluation_splits(features, cfg, scope) for scope in scopes}
-    return _jsonable({"identity_version": "evaluation-1", "kind": "evaluation",
+    return _jsonable({"identity_version": "evaluation-2", "kind": "evaluation",
         "code": code if code is not None else code_identity(project_root),
         "environment": environment if environment is not None else environment_identity(project_root),
         "config": cfg, "context_config": context_config or {}, "experiment": experiment or {},
@@ -175,6 +175,7 @@ def build_run_identity(features: pd.DataFrame, cfg: dict, scopes, *, input_paths
                     "n_rows": len(features), "table_sha256": table_hash, "metadata": records,
                     "metadata_sha256": fingerprint(records)},
         "feature_order": columns, "scopes": list(scopes), "scope_layout": scope_layout, "splits": splits,
+        "evaluation_contracts": {scope: evaluation_contract(scope) for scope in scopes},
         "split_sha256": fingerprint(splits)})
 
 
@@ -231,6 +232,26 @@ def _same_table(actual: pd.DataFrame, expected: pd.DataFrame, keys, label: str) 
 
 def validate_evaluation_outputs(root: Path, identity: dict) -> None:
     """Check complete fold/epoch coverage and recompute metrics, not just hashes."""
+    from .evaluation import evaluation_contract, validate_evaluation_splits
+    new_contract = (identity.get("identity_version") == "evaluation-2"
+        or "evaluation_contracts" in identity
+        or any("split_policy" in row for rows in identity.get("splits", {}).values() for row in rows)
+        or any(((root if identity.get("scope_layout") == "flat" else root / scope)
+                / "evaluation_contract.json").exists() for scope in identity["scopes"]))
+    if new_contract:
+        expected_contracts = {scope: evaluation_contract(scope) for scope in identity["scopes"]}
+        if identity.get("identity_version") != "evaluation-2" or identity.get("evaluation_contracts") != expected_contracts:
+            raise ProvenanceError("Evaluation estimand/selection-diagnostic contract is inconsistent")
+        if identity.get("split_sha256") != fingerprint(identity["splits"]):
+            raise ProvenanceError("Split identity digest is inconsistent")
+        for scope in identity["scopes"]:
+            folder = root if identity.get("scope_layout") == "flat" else root / scope
+            if _read_json(folder / "evaluation_contract.json") != expected_contracts[scope]:
+                raise ProvenanceError("Evaluation contract file differs from its declared estimand/diagnostics")
+            try:
+                validate_evaluation_splits(identity["dataset"]["metadata"], identity["config"], scope, identity["splits"][scope])
+            except (ValueError, KeyError, TypeError) as exc:
+                raise ProvenanceError(f"Invalid stable-ID split contract: {exc}") from exc
     allowed = identity["feature_order"]
     epoch_rows = {str(row["epoch_id"]): row for row in identity["dataset"]["metadata"]}
     for scope in identity["scopes"]:

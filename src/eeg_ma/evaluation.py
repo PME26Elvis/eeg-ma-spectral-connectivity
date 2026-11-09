@@ -14,6 +14,39 @@ from .models import kfda_grid_search, lda_pipeline, svm_grid_search
 from .sfs import forward_select_lda
 
 
+STABLE_SPLIT_POLICY = "stable_epoch_id_v1"
+LEGACY_SPLIT_POLICY = "legacy_positional_v1"
+
+
+def evaluation_contract(scope: str, *, stable_epoch_ids: bool = True) -> dict:
+    """Describe the estimand and the roles of inner/outer scores explicitly."""
+    if scope not in {"intra", "inter"}:
+        raise ValueError(f"Unknown evaluation scope: {scope}")
+    return {
+        "schema_version": "eeg-evaluation-contract-1",
+        "analysis_id": "grouped_lopo_learning_procedure" if scope == "inter" else "within_subject_nested_cv",
+        "report_title": ("Grouped LOPO learning-procedure evaluation" if scope == "inter"
+                         else "Within-participant nested epoch-CV evaluation"),
+        "estimand": ("learning_procedure_at_each_outer_training_subject_set" if scope == "inter"
+                     else "within_participant_epoch_generalization"),
+        "scope": scope,
+        "split_policy": STABLE_SPLIT_POLICY if stable_epoch_ids else LEGACY_SPLIT_POLICY,
+        "grouping_unit": "subject_id_all_sessions" if scope == "inter" else "epochs_within_one_subject",
+        "performance_column": "accuracy",
+        "performance_data": "outer_test_only",
+        "selection_diagnostics": {
+            "sfs_inner_accuracy": "feature_selection_diagnostic; not_selection_independent",
+            "grid_inner_accuracy": "hyperparameter_selection_after_sfs_on_reused_inner_folds; not_selection_independent",
+        },
+    }
+
+
+def _write_evaluation_contract(out_dir: Path, scope: str, features: pd.DataFrame) -> None:
+    value = evaluation_contract(scope, stable_epoch_ids="epoch_id" in features)
+    (out_dir / "evaluation_contract.json").write_text(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+
 def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Run leakage-safe intra-subject evaluation.
 
@@ -108,6 +141,7 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     sfs_path.to_csv(out_dir / "intra_sfs_path.csv", index=False, encoding="utf-8-sig")
     _write_intra_summaries(folds, preds, out_dir)
     _write_feature_frequency(sfs_path, out_dir / "intra_feature_frequency.csv", mode="intra")
+    _write_evaluation_contract(out_dir, "intra", features)
     return folds, preds
 
 
@@ -201,6 +235,7 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     sfs_path.to_csv(out_dir / "inter_sfs_path.csv", index=False, encoding="utf-8-sig")
     _write_inter_summaries(folds, preds, out_dir)
     _write_feature_frequency(sfs_path, out_dir / "inter_feature_frequency.csv", mode="inter")
+    _write_evaluation_contract(out_dir, "inter", features)
     return folds, preds
 
 
@@ -248,11 +283,17 @@ def _prediction_metadata(row: pd.Series) -> Dict[str, object]:
 def _evaluation_indices(df: pd.DataFrame, cfg: Dict, scope: str):
     """Single source of truth for execution and the recorded split manifest.
 
-    Preserve the historical row ordering and splitter parameters. Row-order
-    changes therefore change the identity of an intra-subject run, rather than
-    silently claiming to reproduce the historical randomized split.
+    Versioned tables use canonical epoch-ID order before applying the original
+    splitter and seed. CSV row shuffling then cannot silently change membership
+    or training order. Outer indices are mapped back to the supplied frame;
+    inner indices remain relative to the yielded outer-training sequence.
+
+    Schema-less legacy calls retain the historical positional ordering and
+    splitter parameters. Existing historical results are never rewritten.
     """
-    y = df["class_label"].to_numpy(dtype=int)
+    order = (np.argsort(df["epoch_id"].astype(str).to_numpy(), kind="stable")
+             if "epoch_id" in df else np.arange(len(df)))
+    y = df["class_label"].to_numpy(dtype=int)[order]
     X = np.zeros((len(df), 1))
     if scope == "intra":
         _assert_binary_balance(y, "intra")
@@ -260,14 +301,14 @@ def _evaluation_indices(df: pd.DataFrame, cfg: Dict, scope: str):
         outer = StratifiedKFold(n_splits=int(cfg["cv"]["intra_outer_folds"]), shuffle=True, random_state=seed)
         for fold, (train, test) in enumerate(outer.split(X, y), start=1):
             inner = StratifiedKFold(n_splits=int(cfg["cv"]["intra_inner_folds"]), shuffle=True, random_state=seed + fold)
-            yield fold, train, test, list(inner.split(X[train], y[train]))
+            yield fold, order[train], order[test], list(inner.split(X[train], y[train]))
     elif scope == "inter":
-        groups = df["subject_id"].astype(str).to_numpy()
+        groups = df["subject_id"].astype(str).to_numpy()[order]
         if len(np.unique(groups)) < 3:
             raise ValueError("Inter-subject LOPO requires at least 3 participants")
         for fold, (train, test) in enumerate(LeaveOneGroupOut().split(X, y, groups), start=1):
             inner = list(LeaveOneGroupOut().split(X[train], y[train], groups[train]))
-            yield fold, train, test, inner
+            yield fold, order[train], order[test], inner
     else:
         raise ValueError(f"Unknown evaluation scope: {scope}")
 
@@ -281,6 +322,29 @@ def make_evaluation_splits(features: pd.DataFrame, cfg: Dict, scope: str) -> Lis
     from .schema import validate_feature_table
     validate_feature_table(features)
     _validate_evaluation_input(features, cfg)
+    return _split_records(features, cfg, scope)
+
+
+def validate_evaluation_splits(metadata: list[dict], cfg: Dict, scope: str, manifest: list[dict]) -> None:
+    """Reconstruct stable-ID partitions from metadata, without reading features.
+
+    This guards archived new-format runs against rehashed split declarations,
+    including inner/outer overlap and subjects with sessions on both sides.
+    """
+    frame = pd.DataFrame(metadata)
+    required = {"subject_id", "comparison", "class_label", "epoch_id"}
+    if frame.empty or not required.issubset(frame.columns) or frame["epoch_id"].duplicated().any():
+        raise ValueError("Split metadata must contain unique stable epoch identities")
+    for key in ("subject_id", "comparison", "epoch_id"):
+        if any(not isinstance(value, str) or not value.strip() for value in frame[key]):
+            raise ValueError(f"Invalid split identity: {key}")
+    if not frame["class_label"].isin([0, 1]).all():
+        raise ValueError("Split metadata requires binary labels")
+    if manifest != _split_records(frame, cfg, scope):
+        raise ValueError("Split manifest differs from stable-ID reconstruction")
+
+
+def _split_records(features: pd.DataFrame, cfg: Dict, scope: str) -> List[Dict[str, object]]:
     manifest = []
     for comparison in sorted(features["comparison"].unique()):
         comp = features.loc[features["comparison"] == comparison]
@@ -296,12 +360,15 @@ def make_evaluation_splits(features: pd.DataFrame, cfg: Dict, scope: str) -> Lis
             groups = frame["subject_id"].astype(str).to_numpy()
             for fold, train, test, inner in _evaluation_indices(frame, cfg, scope):
                 train_ids = ids[train]
-                row = {"comparison": str(comparison), "outer_fold": fold,
+                train_groups = groups[train]
+                row = {"comparison": str(comparison), "outer_fold": fold, "split_policy": STABLE_SPLIT_POLICY,
                        "train_epoch_ids": ids[train].tolist(), "test_epoch_ids": ids[test].tolist(),
                        "train_subject_ids": sorted(set(groups[train])),
                        "test_subject_ids": sorted(set(groups[test])),
                        "inner_splits": [{"train_epoch_ids": train_ids[a].tolist(),
-                                         "test_epoch_ids": train_ids[b].tolist()} for a, b in inner]}
+                                         "test_epoch_ids": train_ids[b].tolist(),
+                                         "train_subject_ids": sorted(set(train_groups[a])),
+                                         "test_subject_ids": sorted(set(train_groups[b]))} for a, b in inner]}
                 row["subject_id" if scope == "intra" else "held_out_subject"] = subject if scope == "intra" else str(groups[test][0])
                 manifest.append(row)
     return manifest

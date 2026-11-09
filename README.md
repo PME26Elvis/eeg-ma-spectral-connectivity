@@ -258,7 +258,7 @@ flowchart TD
 
 目前設計選定 **60 位可評估的新受試者、招募上限 94 人**。這個上限以 retention 至少 **0.7125** 為規劃假設，給出約 **95.33%** 達成目標人數的機率；CI 精度結論僅適用於明列的 16 個合成 stress scenarios。詳細假設、Monte Carlo 不確定性、配對差值精度及 attrition sensitivity，見 [precision plan 與完整模擬報告](docs/precision/README.md)。
 
-**研究狀態仍為 `DRAFT`／`not_registered`，尚未建立實際研究的 live lock。** 真實 acquisition／reference／units 的核實、[#11 固定模型與訓練及環境證據](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11)、現場資源與必要核准仍待完成。工程測試通過不代表已允許收案、已外部註冊或已取得獨立驗證結果。
+**研究狀態仍為 `DRAFT`／`not_registered`，尚未建立實際研究的 live lock。** 真實 acquisition／reference／units 的核實、實際 development model training evidence、現場資源與必要核准仍待完成。工程測試通過不代表已允許收案、已外部註冊或已取得獨立驗證結果。
 
 操作與範圍分別見 [獨立驗證協定](docs/confirmatory_protocol.md)、[protocol lock／launch gate](docs/protocol_gate.md) 與 [研究與工程路線圖](docs/roadmap.md)。
 
@@ -269,6 +269,14 @@ flowchart TD
 CI 分成 **Compatibility CI** 與 **Reference numerical CI**：前者保留 Python 3.10／3.12 的寬版本相容性測試；後者用固定環境驗證 synthetic raw → QA → features → grouped evaluation → predictions → validated report。另有手動、有限規模的 dependency comparison，保存同一程式與 fixture 在兩個環境的數值差異，沒有啟動正式研究矩陣或下載 private raw EEG。
 
 安裝、驗證、數值容差、依賴升級及適用限制見 [研究環境與重現指南](docs/reproducibility.md)。
+
+### 固定模型與獨立預測
+
+[#11](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11) 已實作 development-only fit／JSON model export、label-free external prediction 與獨立 score。Primary α-PLV＋SFS＋LDA 和 reference BP＋COH＋SFS＋LDA 各自保存 fitted scaler、selected features、完整 LDA state、training subjects，以及 protocol／code／data／environment identities。新 cohort 不參與任何 fit；預測先完整保存，之後才將 prediction identity 綁入 outcome-access ledger 並讀取 labels。
+
+固定模型使用 `fixed_model_external` analysis ID，與重新訓練的 `grouped_lopo_learning_procedure` 分開。Schema 2.0 的 CV splits 依 stable epoch ID 排序，subject 的全部 sessions 同側；inner SFS／grid 分數明示為 selection diagnostics。Synthetic tests 覆蓋模型 round-trip、no-target-fit、標籤與特徵擾動、split 重排、重新 hash 的錯誤 artifacts、完整 CLI 及 participant-macro scoring，沒有 accuracy 驗收門檻。
+
+完整操作見 [固定模型 external workflow](docs/fixed_external.md)。[#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) 接續整合 participant-level uncertainty 與正式研究報告；目前 score 產物明示為 point estimates。
 
 ## 相關資料與參考文獻
 
