@@ -414,16 +414,19 @@ def _evaluation_fixture() -> tuple[pd.DataFrame, dict]:
 
 @pytest.mark.parametrize("scope", ["intra", "inter"])
 def test_recorded_split_memberships_match_prediction_identity_after_row_reordering(tmp_path, scope):
-    """Protect historical splitter semantics and the new manifest/CSV mapping.
+    """Protect canonical schema-v2 splitting and executed manifest/CSV mapping.
 
-    Row reordering may change intra splits; every actual prediction must retain
-    the identity of its source row and match the recorded split for this run.
+    CSV row order must not change versioned membership. Every actual prediction
+    must retain its source identity and match the independent sklearn oracle.
     """
     from sklearn.model_selection import LeaveOneGroupOut, StratifiedKFold
 
     frame, cfg = _evaluation_fixture()
+    original_manifest = make_evaluation_splits(frame, cfg, scope)
     frame = frame.sample(frac=1, random_state=17).reset_index(drop=True)
     manifest = make_evaluation_splits(frame, cfg, scope)
+    assert manifest == original_manifest
+    assert all(split["split_policy"] == "stable_epoch_id_v1" for split in manifest)
     runner = run_intra_subject if scope == "intra" else run_inter_subject
     _, predictions = runner(frame, cfg, tmp_path / scope)
     assert set(predictions["subject_id"]) == {"001", "1", "NA"}
@@ -433,26 +436,36 @@ def test_recorded_split_memberships_match_prediction_identity_after_row_reorderi
         assert predictions[column].tolist() == indexed.loc[predictions["epoch_id"], column].tolist()
     assert predictions["true_label"].tolist() == indexed.loc[predictions["epoch_id"], "class_label"].tolist()
 
-    # These are the historical sklearn split definitions, independent of the
-    # new manifest helper. No training or feature-selection implementation is copied.
+    # Apply the unchanged sklearn splitters/seeds to canonical epoch-ID order,
+    # independently of the manifest helper and execution index mapping.
     groups = [frame] if scope == "inter" else [frame.loc[frame.subject_id == s].reset_index(drop=True) for s in sorted(frame.subject_id.unique())]
     expected = []
     for group in groups:
+        group = group.sort_values("epoch_id", kind="stable").reset_index(drop=True)
         y = group.class_label.to_numpy()
         if scope == "intra":
-            splitter = StratifiedKFold(2, shuffle=True, random_state=cfg["cv"]["random_state"])
+            splitter = StratifiedKFold(cfg["cv"]["intra_outer_folds"], shuffle=True, random_state=cfg["cv"]["random_state"])
             outer = splitter.split(np.zeros((len(group), 1)), y)
         else:
             outer = LeaveOneGroupOut().split(np.zeros((len(group), 1)), y, group.subject_id.to_numpy())
         for fold, (train, test) in enumerate(outer, start=1):
-            expected.append((fold, group.iloc[train].epoch_id.tolist(), group.iloc[test].epoch_id.tolist()))
-    assert [(row["outer_fold"], row["train_epoch_ids"], row["test_epoch_ids"]) for row in manifest] == expected
+            training = group.iloc[train].reset_index(drop=True)
+            if scope == "intra":
+                inner = StratifiedKFold(cfg["cv"]["intra_inner_folds"], shuffle=True,
+                    random_state=cfg["cv"]["random_state"] + fold).split(np.zeros((len(training), 1)), training.class_label)
+            else:
+                inner = LeaveOneGroupOut().split(np.zeros((len(training), 1)), training.class_label, training.subject_id)
+            expected.append((fold, group.iloc[train].epoch_id.tolist(), group.iloc[test].epoch_id.tolist(),
+                [(training.iloc[a].epoch_id.tolist(), training.iloc[b].epoch_id.tolist()) for a, b in inner]))
+    assert [(row["outer_fold"], row["train_epoch_ids"], row["test_epoch_ids"],
+        [(inner["train_epoch_ids"], inner["test_epoch_ids"]) for inner in row["inner_splits"]]) for row in manifest] == expected
     for split in manifest:
         rows = predictions.loc[predictions.outer_fold == split["outer_fold"]]
         if scope == "intra":
             rows = rows.loc[rows.subject_id == split["subject_id"]]
         else:
             assert not set(split["train_subject_ids"]) & set(split["test_subject_ids"])
+        assert set(rows.classifier) == {"LDA", "RBF-SVM", "KFDA"}
         for _, model_rows in rows.groupby("classifier"):
             assert set(model_rows.epoch_id) == set(split["test_epoch_ids"])
         for inner in split["inner_splits"]:

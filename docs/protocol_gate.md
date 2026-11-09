@@ -8,6 +8,8 @@ reference, ground, units, acquisition verification, responsible-person approval,
 resource commitment and fitted model/training-environment evidence still
 require real study evidence. Issue #10 supplies the reference environment and
 its verification mechanism, described in [the reproducibility guide](reproducibility.md).
+Issue #11 supplies [development fitting, JSON export and external inference](fixed_external.md),
+including a prediction-bound outcome-access event before labels are opened.
 Passing automated tests does not provide real model-training
 evidence, enroll anyone, or register a study externally.
 
@@ -23,8 +25,13 @@ python scripts/16_protocol.py lock --protocol outputs/study/protocol.json --out-
 python scripts/16_protocol.py verify --lock-dir outputs/study/lock-v1
 python scripts/16_protocol.py launch --lock-dir outputs/study/lock-v1 --cohort outputs/study/cohort.json
 python scripts/17_audit_enrollment.py --lock outputs/study/lock-v1 --enrollment outputs/study/enrollment.json --out-dir outputs/study/enrollment-audit-1
-python scripts/16_protocol.py record-outcome-access --lock-dir outputs/study/lock-v1 --cohort outputs/study/cohort.json --enrollment outputs/study/enrollment.json
 ```
+
+For fixed-model execution, follow the [fit → predict → score commands](fixed_external.md).
+`score-external` registers outcome access automatically after validating the
+immutable predictions and before opening labels. The legacy manual
+`record-outcome-access` command remains available for archive workflows, but
+its unbound event cannot authorize new fixed-model scoring.
 
 `validate` lists missing or contradictory decisions. Exit code 0 means the
 decision fields are complete enough to attempt a lock; it does **not** verify
@@ -50,7 +57,7 @@ and `1`; it does not infer that they belong to the same human.
 | Source code | Actual clean Git commit, source-file SHA-256 inventory and aggregate fingerprint, captured automatically at lock time |
 | Development dataset | JSON inventory plus copied bytes of each named source and any legacy mapping; no dangling dependency on the original source directory |
 | Development manifest | Exact literal development IDs, development inventory hash and feature-schema hash |
-| Primary and reference models | Separate opaque fitted files and separate training manifests; model files are hashed and never deserialized by this gate |
+| Primary and reference models | Separate fitted JSON files and training manifests; executable numerical state, feature/class order, source/data/environment identities and development-only grouped splits are verified without pickle |
 | Analysis configuration | Sampling, channels, epoch length, marker and numerical QA settings consistent with the protocol; bounded-count preflight contract |
 | Feature schema | Exact ordered 21 alpha-PLV and 168 BP+COH candidate features, learner identities, class mapping and acquisition identity |
 | Precision report | Completed design simulation with embedded configuration and engine identity; reconstructed coverage/width gates, all scenarios and actual selected N/cap |
@@ -108,10 +115,23 @@ environment cannot satisfy either model's training provenance. A versions-only
 record, a legacy unknown environment, or a lock file merely present on disk does
 not meet `freeze.environment_policy: verified_reference_environment`. Verification
 of an archived lock uses its embedded evidence, not the verifier's current host;
-new execution must separately verify the live environment. These manifests
-are auditable training attestations; opaque bytes do not independently prove how
-an estimator was fitted. The future fixed-model scoring implementation must use
-these artifacts without fitting on the held-out cohort.
+new execution must separately verify the live environment.
+
+The new `freeze.model_artifact_policy: executable_fixed_lda_v1` additionally
+requires `model_artifact_schema`, `model_id`, `execution_scope`,
+`protocol_training_contract_sha256`, `source_protocol_sha256` and `code` in each
+training manifest. These bind actual validated model JSON to its clean fitting
+revision and exact scientific contract. The contract excludes administrative
+approval/registration/status and artifact locators so fitting can precede final
+freeze; acquisition and other scientific decisions remain bound. The model also
+retains the exact original protocol/config/schema bytes and hashes. See the
+[artifact contract](fixed_external.md) for the fitted numerical and split fields.
+
+Archived opaque evidence remains readable under the historical policy, without
+claiming that opaque bytes independently prove fitting. Executable markers in a
+model or training manifest force the new semantic checks even if an outer policy
+field is removed. New external inference always requires executable models and
+rejects archived opaque or `software_validation` artifacts.
 
 ### Acquisition and registration
 
@@ -175,6 +195,12 @@ actual raw QA.
 
 `record-outcome-access` stores the exact cohort and enrollment bytes, their
 hashes, participant IDs, N counts and timestamp in an immutable hash-linked event.
+The new `score-external` path additionally binds the exact `prediction_id`,
+`protocol_lock_id`, cohort SHA-256, complete subject roster and prediction
+creation time. Predictions must already be complete and validated. It reuses an
+event only for those exact predictions and identical cohort/enrollment bytes;
+labels are opened only after the event commits. A failed label check or score
+write preserves exposure and permits only an auditable retry at a new path.
 Once this event commits, **all further launch checks on that lock fail**, even
 for new IDs. This closes the possibility of using the command to peek and then
 extend recruitment. It does not prevent someone from bypassing the software and
@@ -188,6 +214,11 @@ contains digest-named events; `STATE.json` is an atomically replaced pointer to
 the committed chain. Writers use the existing OS-level lock. Verification rejects
 modified events, broken links, missing committed events, reordered sequences,
 unexpected files, symlinks and orphan events.
+
+Prediction preparation/publication holds the same OS lock through the atomic
+directory rename, so a cooperating outcome writer cannot commit between the last
+authorization check and publication. New prediction also requires a clean live
+source fingerprint equal to the frozen code and a verified live reference lock.
 
 If an event file is written but updating the state pointer fails, the event is
 not discarded. Verification, launch and amendments fail closed until the intact

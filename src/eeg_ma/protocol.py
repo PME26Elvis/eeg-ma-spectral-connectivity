@@ -5,6 +5,7 @@ has never seen an unrecorded result or authenticate an operator's attestations.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
@@ -133,6 +134,35 @@ def _ids(value: Any, label: str, *, allow_empty=False) -> list[str]:
     if any(not _text(v) for v in value) or len(set(value)) != len(value):
         raise ProtocolError(f"{label} contains blank, coerced, or duplicate subject IDs")
     return value
+
+
+def protocol_training_contract(spec: dict) -> dict:
+    """Return the prospective scientific decisions that a fitted model binds.
+
+    Fitting precedes the final lock because the lock contains the fitted model.
+    Artifact locators/hashes and lifecycle/approval bookkeeping therefore cannot
+    participate in this digest. Their actual bytes are bound independently by
+    the training manifest and final protocol lock. All other decisions, including
+    previously unseen future fields, remain part of the training contract.
+
+    This projection is an identity operation, not a readiness or approval gate.
+    """
+    if not isinstance(spec, dict) or spec.get("schema_version") != PROTOCOL_SCHEMA:
+        raise ProtocolError("Training contract requires an explicit protocol schema")
+    if not isinstance(spec.get("study"), dict) or not isinstance(spec.get("freeze"), dict):
+        raise ProtocolError("Training contract requires study and freeze decisions")
+    contract = json.loads(canonical_json(spec))
+    contract.pop("status", None)
+    contract.pop("approval", None)
+    contract["study"].pop("registration", None)
+    contract["study"].pop("outcomes_accessed", None)
+    contract["freeze"].pop("artifacts", None)
+    return {"schema_version": "eeg-model-training-contract-1", "protocol": contract}
+
+
+def protocol_training_contract_sha256(spec: dict) -> str:
+    """Hash the same decisions before fitting and after model artifacts freeze."""
+    return fingerprint(protocol_training_contract(spec))
 
 
 def validate_protocol(spec: dict, *, stage="draft") -> ProtocolCheck:
@@ -267,6 +297,15 @@ def validate_protocol(spec: dict, *, stage="draft") -> ProtocolCheck:
         actual = _at(spec, path)
         if actual != expected or (isinstance(expected, bool) and type(actual) is not bool) or (type(expected) in {int, float} and type(actual) not in {int, float}):
             fail("FIXED_CONTRACT", path, "Missing or inconsistent prospective protocol contract")
+    # Missing policy identifies archived opaque-model attestations from before
+    # executable exports existed. Current drafts declare the stronger policy;
+    # external inference always requires executable models even for old locks.
+    model_policy = _at(spec, "freeze.model_artifact_policy")
+    freeze = _at(spec, "freeze", {})
+    if isinstance(freeze, dict) and "model_artifact_policy" in freeze and model_policy != "executable_fixed_lda_v1":
+        fail("FIXED_CONTRACT", "freeze.model_artifact_policy", "Executable model policy cannot be weakened")
+    if model_policy == "executable_fixed_lda_v1" and not _text(_at(spec, "protocols.A.protocol_version")):
+        fail("FIXED_CONTRACT", "protocols.A.protocol_version", "Executable inference requires the explicit acquisition protocol version")
     for path in ("eligibility.qc.flat_std_epsilon", "eligibility.qc.sample_period_tolerance_s",
                  "eligibility.qc.clock_tolerance_s", "eligibility.qc.sampling_rate_tolerance_hz",
                  "recruitment.target_half_width", "recruitment.completion_assurance", "recruitment.minimum_retention_for_planning",
@@ -386,6 +425,48 @@ def _source_artifacts(spec: dict, base: Path) -> tuple[dict, dict, dict, dict]:
     return contents, sources, dataset_contents, dataset_sources
 
 
+def _executable_model_artifact(spec: dict, contents: dict[str, bytes], role: str,
+                               development_subject_ids: list[str]) -> dict:
+    """Bind portable executable state to the actual frozen training evidence."""
+    from .fixed_model import MODEL_SCHEMA, validate_model
+    training = _json_bytes(contents[role + "_training_manifest"], role + " training manifest")
+    schema = _json_bytes(contents["feature_schema"], "feature schema")
+    analysis = _json_bytes(contents["analysis_config"], "analysis config")
+    model = _json_bytes(contents[role + "_model"], role + " executable model")
+    try:
+        model = validate_model(model, expected_role=role, expected_feature_schema=schema,
+            expected_training_contract=protocol_training_contract(spec),
+            expected_training_subject_ids=development_subject_ids)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ProtocolError(f"Frozen {role} executable model is invalid: {exc}") from exc
+    if model["execution_scope"] != "reference_development_fit":
+        raise ProtocolError("Software-validation models cannot authorize a live protocol lock or external study")
+    if (not isinstance(model["code"].get("commit"), str)
+            or not COMMIT.fullmatch(model["code"]["commit"]) or model["code"].get("dirty") is not False):
+        raise ProtocolError("Live model evidence requires a clean, identifiable training source-code commit")
+    expected = {
+        "model_artifact_schema": MODEL_SCHEMA, "model_id": model["model_id"],
+        "execution_scope": "reference_development_fit",
+        "protocol_training_contract_sha256": protocol_training_contract_sha256(spec),
+        "source_protocol_sha256": model["source_protocol_sha256"],
+        "training_subject_ids": model["training_subject_ids"], "code": model["code"],
+    }
+    if any(training.get(key) != value for key, value in expected.items()):
+        raise ProtocolError(f"Frozen {role} executable model and training manifest disagree")
+    if (model["analysis_config"] != analysis
+            or model["analysis_config_sha256"] != hashlib.sha256(contents["analysis_config"]).hexdigest()
+            or model["feature_schema_sha256"] != hashlib.sha256(contents["feature_schema"]).hexdigest()):
+        raise ProtocolError(f"Frozen {role} executable model uses different config/schema bytes")
+    provenance_fields = (
+        "development_manifest_sha256", "training_data_sha256", "analysis_config_sha256",
+        "feature_schema_sha256", "environment_sha256", "environment_id", "environment_lock_id",
+        "eligibility_rule_sha256", "fitted_on_development_only", "target_fit_performed",
+    )
+    if any(model["provenance"].get(key) != training.get(key) for key in provenance_fields):
+        raise ProtocolError(f"Frozen {role} executable model provenance differs from its training evidence")
+    return model
+
+
 def _artifact_semantics(spec: dict, contents: dict[str, bytes], dataset_contents: dict[str, bytes]) -> dict:
     dev = _json_bytes(contents["development_manifest"], "development_manifest")
     if dev.get("schema_version") != "eeg-development-manifest-1":
@@ -435,6 +516,17 @@ def _artifact_semantics(spec: dict, contents: dict[str, bytes], dataset_contents
             raise ProtocolError(f"Frozen {role} training provenance is inconsistent")
         if set(_ids(training.get("training_subject_ids"), role + " training_subject_ids")) != set(ids):
             raise ProtocolError(f"Frozen {role} model used a different development subject set")
+        executable_markers = {"model_artifact_schema", "model_id", "execution_scope",
+                              "protocol_training_contract_sha256", "source_protocol_sha256"}
+        try:
+            model_document = _json_bytes(contents[role + "_model"], role + " model")
+        except ProtocolError:
+            # Older archives may hold opaque model bytes. Executable JSON may
+            # not downgrade to that archive branch by losing outer metadata.
+            model_document = {}
+        if (_at(spec, "freeze.model_artifact_policy") == "executable_fixed_lda_v1"
+                or executable_markers & set(training) or executable_markers & set(model_document)):
+            _executable_model_artifact(spec, contents, role, ids)
     evidence = _json_bytes(contents["acquisition_evidence"], "acquisition_evidence")
     if evidence.get("schema_version") != "eeg-acquisition-verification-1" or evidence.get("verified") is not True:
         raise ProtocolError("Acquisition evidence must contain a verified operator record")
@@ -558,6 +650,10 @@ def _validate_event(event: dict) -> None:
     if not isinstance(enrollment_text, str) or hashlib.sha256(enrollment_text.encode("utf-8")).hexdigest() != event.get("enrollment_manifest_sha256"):
         raise ProtocolError("Outcome event enrollment evidence hash is invalid")
     _json_bytes(enrollment_text.encode("utf-8"), "event enrollment evidence")
+    if "prediction_commit" in event:
+        _prediction_commit(event["prediction_commit"], lock_id=event["lock_id"],
+            cohort_sha256=event["cohort_manifest_sha256"], subject_ids=event["subject_ids"],
+            accessed_at=event["recorded_at"])
 
 
 def _cohort_ids(cohort: dict) -> list[str]:
@@ -679,6 +775,10 @@ def _validate_lock(root: Path, *, allow_orphan_events=False) -> dict:
         _check_cohort(spec, cohort, all_development, prior_exposed)
         enrollment = _json_bytes(event["enrollment_manifest_text"].encode("utf-8"), "outcome enrollment")
         audit = _assess_outcome_evidence(enrollment, spec, cohort, locked_at, event["recorded_at"])
+        if "prediction_commit" in event:
+            _prediction_commit(event["prediction_commit"], lock_id=lock_id,
+                cohort_sha256=event["cohort_manifest_sha256"], subject_ids=event["subject_ids"],
+                locked_at=manifest["locked_at"], accessed_at=event["recorded_at"])
         if any(type(event.get(key)) is not int or event[key] != audit[key] for key in ("n_evaluable", "n_recruited")):
             raise ProtocolError("Outcome event enrollment counts disagree with the frozen evidence")
     if len(events) > 1:
@@ -760,6 +860,129 @@ def check_launch(lock_dir: str | Path, cohort_manifest: str | Path | dict) -> di
             "scope": "complete_cumulative_roster_attestation; outcome_access_also_requires_closed_enrollment"}
 
 
+def check_external_prediction(lock_dir: str | Path, cohort_manifest: str | Path | dict) -> dict:
+    """Authorize label-free inference from the exact locked executable models.
+
+    This only reads frozen training/protocol evidence and the score-blind cohort
+    roster. The caller verifies its live reference runtime and holds
+    guard_external_prediction through the atomic prediction publication.
+    """
+    root = protect_output(lock_dir)
+    with _matrix_lock(root):
+        return _external_prediction_context(root, cohort_manifest)
+
+
+def _external_prediction_context(root: Path, cohort_manifest: str | Path | dict) -> dict:
+    """Inspect prediction authorization while the caller owns the ledger lock."""
+    locked = validate_lock(root)
+    if locked["events"]:
+        raise ProtocolError("Outcome access has closed prediction for this lock; use the previously committed predictions")
+    if isinstance(cohort_manifest, dict):
+        data = canonical_json(cohort_manifest).encode("utf-8")
+    else:
+        data = Path(cohort_manifest).read_bytes()
+    cohort = _json_bytes(data, "external cohort")
+    _check_cohort(locked["protocol"], cohort, locked["development_subject_ids"], locked["exposed_subject_ids"])
+    contents = {role: (root / item["file"]).read_bytes()
+                for role, item in locked["manifest"]["artifacts"].items()}
+    # The second read must still be exactly the previously validated bytes.
+    if any(hashlib.sha256(contents[role]).hexdigest() != item["sha256"]
+           for role, item in locked["manifest"]["artifacts"].items()):
+        raise ProtocolError("Frozen model evidence changed while preparing external prediction")
+    current_development = _ids(_json_bytes(contents["development_manifest"], "development manifest")["subject_ids"],
+                               "current development subjects")
+    models = {role: _executable_model_artifact(locked["protocol"], contents, role, current_development)
+              for role in ("primary", "reference")}
+    return {"locked": locked, "cohort": cohort, "cohort_manifest_text": data.decode("utf-8"),
+            "cohort_manifest_sha256": hashlib.sha256(data).hexdigest(), "models": models,
+            "model_sha256": {role: hashlib.sha256(contents[role + "_model"]).hexdigest()
+                              for role in ("primary", "reference")},
+            "training_manifests": {role: _json_bytes(contents[role + "_training_manifest"], role + " training manifest")
+                                   for role in ("primary", "reference")}}
+
+
+@contextmanager
+def guard_external_prediction(lock_dir: str | Path, cohort_manifest: str | Path | dict, *,
+                              expected_lock_id: str, expected_cohort_sha256: str):
+    """Serialize prediction publication with outcome-access ledger writers.
+
+    Enter this context before the output directory context, so its atomic rename
+    completes before this ledger lock is released. A separate last-minute check
+    would leave a gap in which outcomes could be opened before publication.
+    """
+    root = protect_output(lock_dir)
+    with _matrix_lock(root):
+        context = _external_prediction_context(root, cohort_manifest)
+        if (context["locked"]["manifest"]["lock_id"] != expected_lock_id
+                or context["cohort_manifest_sha256"] != expected_cohort_sha256):
+            raise ProtocolError("Protocol/cohort changed before prediction publication")
+        yield context
+
+
+def _prediction_commit(value: dict, *, lock_id: str, cohort_sha256: str, subject_ids: list[str],
+                       locked_at: str | None = None, accessed_at: str | None = None) -> dict:
+    keys = {"prediction_id", "protocol_lock_id", "cohort_manifest_sha256", "cohort_subject_ids", "created_at"}
+    if not isinstance(value, dict) or set(value) != keys:
+        raise ProtocolError("Prediction commit requires exactly its prediction, lock, cohort, roster and time identities")
+    for name in ("prediction_id", "protocol_lock_id", "cohort_manifest_sha256"):
+        if not isinstance(value[name], str) or not SHA.fullmatch(value[name]):
+            raise ProtocolError("Prediction commit contains an invalid digest")
+    if value["protocol_lock_id"] != lock_id or value["cohort_manifest_sha256"] != cohort_sha256:
+        raise ProtocolError("Prediction commit belongs to a different protocol lock or cohort bytes")
+    if sorted(_ids(value["cohort_subject_ids"], "prediction cohort subjects")) != sorted(subject_ids):
+        raise ProtocolError("Prediction commit must bind the complete cumulative cohort roster")
+    created = _utc(value["created_at"], "prediction creation time")
+    if locked_at is not None and created < _utc(locked_at, "protocol lock time"):
+        raise ProtocolError("Prediction commit predates the prospective protocol lock")
+    if created > datetime.now(timezone.utc):
+        raise ProtocolError("Prediction creation time cannot be in the future")
+    if accessed_at is not None and created > _utc(accessed_at, "outcome access time"):
+        raise ProtocolError("Predictions must be committed before outcome access")
+    return json.loads(canonical_json(value))
+
+
+def authorize_external_score(lock_dir: str | Path, cohort_manifest: str | Path,
+                             enrollment_manifest: str | Path, *, prediction_commit: dict) -> dict:
+    """Record/reuse outcome access for already validated immutable predictions.
+
+    The caller must validate the complete prediction directory before calling
+    this function and must not read labels until it returns. Failure after this
+    boundary deliberately preserves exposure; a retry can use only the exact
+    committed prediction/cohort/enrollment identities. Old unbound manual events
+    remain valid historical audit records but cannot authorize executable scores.
+    """
+    root = protect_output(lock_dir)
+    cohort_source, enrollment_source = Path(cohort_manifest), Path(enrollment_manifest)
+    cohort_data, enrollment_data = cohort_source.read_bytes(), enrollment_source.read_bytes()
+    cohort = _json_bytes(cohort_data, "external cohort")
+    enrollment = _json_bytes(enrollment_data, "external enrollment")
+    locked = validate_lock(root)
+    prior_exposed = locked["manifest"]["lineage"].get("exposed_subject_ids", [])
+    _check_cohort(locked["protocol"], cohort, locked["development_subject_ids"], prior_exposed)
+    commit = _prediction_commit(prediction_commit, lock_id=locked["manifest"]["lock_id"],
+        cohort_sha256=hashlib.sha256(cohort_data).hexdigest(), subject_ids=_cohort_ids(cohort),
+        locked_at=locked["manifest"]["locked_at"])
+    if locked["events"]:
+        event = locked["events"][0]
+        if event.get("prediction_commit") != commit:
+            raise ProtocolError("Outcome access is not bound to these exact committed predictions")
+    else:
+        event = record_outcome_access(root, cohort_source,
+            enrollment_manifest_path=enrollment_source, prediction_commit=commit)
+        locked = validate_lock(root)
+    if (event["cohort_manifest_sha256"] != hashlib.sha256(cohort_data).hexdigest()
+            or event["enrollment_manifest_sha256"] != hashlib.sha256(enrollment_data).hexdigest()):
+        raise ProtocolError("Outcome access is bound to different cohort/enrollment evidence bytes")
+    _prediction_commit(commit, lock_id=locked["manifest"]["lock_id"],
+        cohort_sha256=event["cohort_manifest_sha256"], subject_ids=event["subject_ids"],
+        locked_at=locked["manifest"]["locked_at"], accessed_at=event["recorded_at"])
+    audit = _assess_outcome_evidence(enrollment, locked["protocol"], cohort,
+        _utc(locked["manifest"]["locked_at"], "lock time"), event["recorded_at"])
+    if cohort_source.read_bytes() != cohort_data or enrollment_source.read_bytes() != enrollment_data:
+        raise ProtocolError("Cohort/enrollment evidence changed while authorizing scoring")
+    return {"locked": locked, "cohort": cohort, "enrollment": enrollment, "audit": audit, "event": event}
+
+
 def _check_cohort(spec: dict, cohort: dict, development_ids: list, exposed_ids: list) -> None:
     if set(cohort) != {"schema_version", "cohort_id", "protocol_id", "subject_ids", "outcomes_accessed"}:
         raise ProtocolError("Cohort manifest must contain only schema, cohort/protocol IDs, subject_ids and outcomes_accessed; outcome scores are forbidden")
@@ -799,7 +1022,7 @@ def _assess_outcome_evidence(enrollment: dict, spec: dict, cohort: dict,
 
 
 def record_outcome_access(lock_dir: str | Path, cohort_manifest: str | Path, *,
-                          enrollment_manifest_path: str | Path) -> dict:
+                          enrollment_manifest_path: str | Path, prediction_commit: dict | None = None) -> dict:
     root = protect_output(lock_dir)
     source = Path(cohort_manifest)
     data = source.read_bytes()
@@ -822,6 +1045,10 @@ def record_outcome_access(lock_dir: str | Path, cohort_manifest: str | Path, *,
                  "enrollment_manifest_text": enrollment_data.decode("utf-8"),
                  "enrollment_manifest_sha256": hashlib.sha256(enrollment_data).hexdigest(),
                  "n_evaluable": report["n_evaluable"], "n_recruited": report["n_recruited"]}
+        if prediction_commit is not None:
+            event["prediction_commit"] = _prediction_commit(prediction_commit,
+                lock_id=locked["manifest"]["lock_id"], cohort_sha256=event["cohort_manifest_sha256"],
+                subject_ids=event["subject_ids"], locked_at=locked["manifest"]["locked_at"], accessed_at=recorded_at)
         event["event_id"] = fingerprint(event)
         event_path = root / "events" / (event["event_id"] + ".json")
         if event_path.exists():
@@ -856,6 +1083,10 @@ def recover_event_append(lock_dir: str | Path) -> dict:
         enrollment = _json_bytes(event["enrollment_manifest_text"].encode("utf-8"), "orphan enrollment")
         _assess_outcome_evidence(enrollment, locked["protocol"], cohort,
                                  _utc(locked["manifest"]["locked_at"], "lock time"), event["recorded_at"])
+        if "prediction_commit" in event:
+            _prediction_commit(event["prediction_commit"], lock_id=locked["manifest"]["lock_id"],
+                cohort_sha256=event["cohort_manifest_sha256"], subject_ids=event["subject_ids"],
+                locked_at=locked["manifest"]["locked_at"], accessed_at=event["recorded_at"])
         if state["sequence"]:
             raise ProtocolError("Outcome access has already closed this lock")
         _atomic_json(root / "STATE.json", {**state, "sequence": event["sequence"], "head": event_id})

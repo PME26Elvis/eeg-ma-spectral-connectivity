@@ -1,6 +1,6 @@
 # 獨立受試者驗證協定 v1：設計已定義，正式收案仍受 gate 管理
 
-**版本 1.1；2026-11-09；狀態 DRAFT／尚未註冊。** #9 完成可執行的協定、樣本數證據、收案稽核與鎖定／修訂機制；#10 加入 verified reference environment 與 training lock identity 的必要契約，研究終點、N／cap 與數值方法不變。實際設備驗證、研究核准、固定模型與其 training environment 證據尚未齊備，不能把文件合併稱為已鎖定、已註冊或已開始收案。
+**版本 1.2；2026-11-09；狀態 DRAFT／尚未註冊。** #9 完成可執行的協定、樣本數證據、收案稽核與鎖定／修訂機制；#10 加入 verified reference environment；#11 加入可執行的 fixed-model JSON、development-only training contract、prediction-bound outcome access，並明列 A acquisition protocol version `1`。研究終點、N／cap 與數值方法不變。實際設備驗證、研究核准、固定模型與其 training environment 證據尚未齊備，不能把文件合併稱為已鎖定、已註冊或已開始收案。
 
 機器可讀的唯一決策來源是 [`confirmatory_protocol.json`](../configs/confirmatory_protocol.json)；操作見 [protocol gate](protocol_gate.md)，數值證據見 [precision report](precision/README.md)。歷史方法與結果仍分別以 [`method_definition.md`](method_definition.md)、[`final_results_summary.md`](final_results_summary.md) 為準。
 
@@ -184,7 +184,7 @@ PYTHONPATH=src python scripts/17_audit_enrollment.py \
 
 ## 9. 真正的 lock 與啟動 gate
 
-`validate → lock → launch → audit enrollment → record-outcome-access` 是現有操作順序；詳見 [protocol gate 操作](protocol_gate.md)。這些命令不能取代 acquisition、人員核准或 #11 的固定模型執行管線。
+正式固定模型流程為 `fit-development → lock → launch → prepare-inputs → predict-external → score-external`；收案期間獨立 audit enrollment。Scoring 在讀 labels 前，會把已保存的 prediction identity 記入 outcome-access ledger。詳見 [fixed external 操作](fixed_external.md) 與 [protocol gate](protocol_gate.md)。這些命令不能取代 acquisition 或人員核准。
 
 | 證據 | v1 repo 狀態 | Lock 所需真實內容 |
 |---|---|---|
@@ -193,12 +193,12 @@ PYTHONPATH=src python scripts/17_audit_enrollment.py \
 | Development boundary | 已綁定現有 feature bytes／subject IDs／legacy mapping | 真實資料檔與 manifest，不能只宣告 hash 而無檔案 |
 | Feature schema／analysis config | 已生成 | exact ordered features、class mapping、數值方法 |
 | Acquisition | **未完成** | device、units、reference、ground、歷史對齊／Fs／clock 等實證及核准 |
-| Environment | **#10 reference stack／驗證機制已交付；實際 training evidence 隨 #11 產生** | 精確 runtime／dependency manifest、已驗證的 reference lock；不能以 CI／模擬環境冒充模型 training environment |
-| Primary／reference fitted models | **未完成，#11** | binary artifacts、development-only training manifests、feature/config/data/eligibility hashes |
+| Environment | **#10 reference stack／驗證機制及 #11 training capture 已交付；真實訓練證據尚缺** | 精確 runtime／dependency manifest、已驗證的 reference lock；不能以 CI／模擬環境冒充模型 training environment |
+| Primary／reference fitted models | **#11 fit／export 工程完成；真實 study artifacts 尚缺** | 可驗證的 fitted JSON、development-only training manifests、feature/config/data/eligibility hashes |
 | 人員／倫理／資源 | **未完成** | 真實負責人、核准時間、倫理判定與 reference、資源承諾 |
 | Registration | `not_registered` | 若採外部註冊，另填實際 URL／時間；local lock 不等於註冊 |
 
-任何必要欄位 missing、null、unknown、false verification 或 artifact 缺失都阻擋 lock。鎖定時使用 clean Git commit 與 working-source fingerprint，複製實際 artifacts／development sources，建立不可原地覆寫的 snapshot；不反序列化不可信的模型 binary。之後驗證靠已封存 bytes，不依賴外部來源仍存在。
+任何必要欄位 missing、null、unknown、false verification 或 artifact 缺失都阻擋 lock。鎖定時使用 clean Git commit 與 working-source fingerprint，複製實際 artifacts／development sources，建立不可原地覆寫的 snapshot；新的模型只解析受限的 JSON 數值契約，不載入 pickle。之後驗證靠已封存 bytes，不依賴外部來源仍存在。
 
 Launch roster 必須與 cohort ID、A protocol ID 一致；與 development／歷次 exposed subjects 不得交集。`record-outcome-access` 要求同一 full roster 的 enrollment audit 已達 stop 且沒有 pending，再記錄機器 UTC、原始 manifest bytes、SHA 與 hash-chain event。解盲後原 lock 不再接受招募。所有可見紀錄可稽核，但本地 ledger 不是數位簽章或防惡意管理員機制，無法證明有人從未私下看過結果。
 
@@ -208,7 +208,7 @@ Launch roster 必須與 cohort ID、A protocol ID 一致；與 development／歷
 
 任何 amendment 要有理由、parent lock identity、時間及 changed sections。Outcome access 後的模型、QC、特徵、threshold 或 protocol 更動，必須記錄舊 test subjects 已 exposed，改用新的 cohort ID 與未見 holdout；不能把 `outcomes_accessed` 改回 false 清除歷史。即使只是修正文案，本地流程也保守地要求 post-outcome 新 lock 的新 holdout，不允許重開原收案。
 
-#11 尚須完成 `fit → immutable predict → locked score`：development-only fit spies、label permutation 不改 predictions、ordered schema／subject boundary、prediction／label／eligibility hashes、兩模型相同 epochs、missing prediction fail closed。#12 尚須將本協定的人層級 CI／flow／interpretation 整合成最終研究報告。現在可驗證 #9 的協定工程與 synthetic 情境，尚不能宣稱真實固定模型外部驗證已完成。
+#11 已完成 [development fit → immutable prediction → locked score](fixed_external.md)，並以實際 synthetic fits、fit spies、label permutation、ordered schema／subject boundary、prediction／label／eligibility hashes 及兩模型相同 epochs 驗證資料流。#12 尚須將本協定的人層級 CI／flow／interpretation 整合成最終研究報告。已驗收的是協定與模型工程，尚不能宣稱真實固定模型外部驗證已完成。
 
 ## 參考來源
 

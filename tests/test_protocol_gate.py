@@ -42,6 +42,10 @@ def complete_spec(tmp_path: Path, *, subject_ids=None) -> tuple[Path, dict]:
     inputs = tmp_path / "inputs"
     inputs.mkdir(exist_ok=True)
     spec = json.loads((ROOT / "configs/confirmatory_protocol.json").read_text())
+    # These older gate fixtures intentionally exercise archived opaque-model
+    # attestations. New executable-model integration tests keep the new policy
+    # and provide actual validated fitted model JSON instead.
+    spec["freeze"].pop("model_artifact_policy", None)
     spec["acquisition"].update(units="uV", reference="SYNTHETIC reference", ground="SYNTHETIC ground",
         device="SYNTHETIC test device", evidence="SYNTHETIC verification record", verified=True,
         historical_alignment_verified=True)

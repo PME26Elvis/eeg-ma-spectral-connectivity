@@ -20,6 +20,10 @@
 
 Identity 的 canonical JSON SHA-256 是 `run_id`。Absolute output path 和完成時間不參與這個 ID。Column order、資料 bytes、metadata、split、code 或環境的改變會產生不同 identity；不是只比較 JSON 檔名或 `random_state`。
 
+#11 起的新 run 使用 `identity_version=evaluation-2`，額外綁定 `evaluation_contracts` 與各 scope 的 `evaluation_contract.json`。Schema 2.0 的 splits 先依 stable epoch ID 排序；CSV row reorder 仍因來源 bytes 改變而有新的 run ID，但 train／test epoch membership 相同。Validator 會重建 inner／outer splits，檢查全部 sessions 的 subject 分組，並拒絕重新 hash 的錯誤 memberships。舊 `evaluation-1` archives 仍可稽核；無 stable IDs 的 legacy caller 保留 positional split 行為。
+
+`grid_inner_accuracy` 與 `sfs_inner_accuracy` 在 contract 中明列為 selection diagnostics；outer held-out scores 才是該 CV 流程的 test performance。固定 development models 的 external inference 使用獨立 `fixed_model_external` analysis ID、outputs 與報表標題，詳見 [fixed external workflow](fixed_external.md)。
+
 同次 invocation 不在每個 experiment 重新讀取 code／environment 身分，避免一個矩陣的不同項目混用不同捕捉時點。執行中不應編輯程式或輸入檔；跨 invocation 有任何研究程式或依賴改變時，使用新的 output root。這是嚴格的研究執行識別，並非聲稱所有環境變動都必然影響數值。
 
 ## 2. 一個 run 如何變成 complete
