@@ -103,6 +103,28 @@ def test_missing_required_artifact_rejected(completed, relative):
     assert bytes_tree(root) == before
 
 
+def test_parseable_truncated_predictions_fail_resume_and_new_publication(completed, tmp_path):
+    root, _, _, identity = completed
+    path = root / "inter/inter_predictions.csv"
+    rows = path.read_bytes().splitlines(keepends=True)
+    path.write_bytes(b"".join(rows[:-1]))
+    before = bytes_tree(root)
+    with pytest.raises(ProvenanceError, match="artifacts"):
+        RunTransaction(root, identity, resume=True).execute(lambda _: pytest.fail("must not reuse truncation"))
+    assert bytes_tree(root) == before
+
+    # A syntactically valid CSV missing its last row must also fail before a
+    # new manifest can bless its hashes as complete.
+    destination = tmp_path / "new-run"
+    def truncated_writer(stage):
+        shutil.copytree(root, stage, dirs_exist_ok=True)
+        (stage / "run_manifest.json").unlink()
+    with pytest.raises(ProvenanceError, match="row count"):
+        RunTransaction(destination, identity).execute(truncated_writer)
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".staging-new-run-*/run_manifest.json"))
+
+
 def test_semantically_wrong_output_never_publishes(tmp_path):
     frame, cfg = fixture_data()
     identity = build_run_identity(frame, cfg, ["inter"], code=CODE, environment=ENV)
