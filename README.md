@@ -258,9 +258,17 @@ flowchart TD
 
 目前設計選定 **60 位可評估的新受試者、招募上限 94 人**。這個上限以 retention 至少 **0.7125** 為規劃假設，給出約 **95.33%** 達成目標人數的機率；CI 精度結論僅適用於明列的 16 個合成 stress scenarios。詳細假設、Monte Carlo 不確定性、配對差值精度及 attrition sensitivity，見 [precision plan 與完整模擬報告](docs/precision/README.md)。
 
-**研究狀態仍為 `DRAFT`／`not_registered`，尚未建立實際研究的 live lock。** 真實 acquisition／reference／units 的核實、[#11 固定模型與訓練證據](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11)、[#10 研究環境](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10)、現場資源與必要核准仍待完成。工程測試通過不代表已允許收案、已外部註冊或已取得獨立驗證結果。
+**研究狀態仍為 `DRAFT`／`not_registered`，尚未建立實際研究的 live lock。** 真實 acquisition／reference／units 的核實、[#11 固定模型與訓練及環境證據](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11)、現場資源與必要核准仍待完成。工程測試通過不代表已允許收案、已外部註冊或已取得獨立驗證結果。
 
 操作與範圍分別見 [獨立驗證協定](docs/confirmatory_protocol.md)、[protocol lock／launch gate](docs/protocol_gate.md) 與 [研究與工程路線圖](docs/roadmap.md)。
+
+### 固定環境與數值 CI
+
+[#10](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10) 已建立新的 **CPython 3.12.14／Linux x86_64 reference environment**，完整依賴使用版本與 wheel SHA-256 鎖定。新 run 記錄實際環境、lock、native libraries 與執行緒設定；正式 model provenance 必須綁定已驗證的環境及 lock identity。這是新研究環境，原研究未知的環境欄位不會被回填。
+
+CI 分成 **Compatibility CI** 與 **Reference numerical CI**：前者保留 Python 3.10／3.12 的寬版本相容性測試；後者用固定環境驗證 synthetic raw → QA → features → grouped evaluation → predictions → validated report。另有手動、有限規模的 dependency comparison，保存同一程式與 fixture 在兩個環境的數值差異，沒有啟動正式研究矩陣或下載 private raw EEG。
+
+安裝、驗證、數值容差、依賴升級及適用限制見 [研究環境與重現指南](docs/reproducibility.md)。
 
 ## 相關資料與參考文獻
 

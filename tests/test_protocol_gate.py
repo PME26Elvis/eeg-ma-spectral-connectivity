@@ -74,8 +74,9 @@ def complete_spec(tmp_path: Path, *, subject_ids=None) -> tuple[Path, dict]:
     artifact("development_manifest", {"schema_version": "eeg-development-manifest-1", "cohort_id": "synthetic-development",
         "subject_ids": ids, "data_sha256": spec["freeze"]["artifacts"]["development_data_manifest"]["sha256"],
         "feature_schema_sha256": spec["freeze"]["artifacts"]["feature_schema"]["sha256"], "use": "development_only"})
-    artifact("environment", {"python": "3.12.0", "packages": {"numpy": "2.0.0", "scikit-learn": "1.5.0"},
-        "scope": "SYNTHETIC test environment"})
+    from test_environment import synthetic_reference_environment
+    synthetic_environment = synthetic_reference_environment()
+    artifact("environment", synthetic_environment)
     artifact("acquisition_evidence", {"schema_version": "eeg-acquisition-verification-1", "verified": True,
         "acquisition_sha256": fingerprint(spec["acquisition"]), "verified_by": "SYNTHETIC test operator",
         "verified_at": "2019-12-01T00:00:00Z"})
@@ -87,6 +88,8 @@ def complete_spec(tmp_path: Path, *, subject_ids=None) -> tuple[Path, dict]:
             "development_manifest_sha256": frozen["development_manifest"]["sha256"],
             "analysis_config_sha256": frozen["analysis_config"]["sha256"],
             "environment_sha256": frozen["environment"]["sha256"],
+            "environment_id": synthetic_environment["environment_id"],
+            "environment_lock_id": synthetic_environment["lock_id"],
             "feature_schema_sha256": frozen["feature_schema"]["sha256"],
             "training_data_sha256": frozen["development_data_manifest"]["sha256"],
             "training_subject_ids": ids, "eligibility_rule_sha256": fingerprint(spec["eligibility"]),
@@ -195,7 +198,7 @@ def test_unrelated_rehashed_environment_cannot_replace_the_models_training_envir
     monkeypatch.setattr(gate, "code_identity", synthetic_code)
     monkeypatch.setattr(gate, "_now", lambda: LOCK_TIME)
     out = tmp_path / "rejected"
-    with pytest.raises(gate.ProtocolError, match="training provenance"):
+    with pytest.raises(gate.ProtocolError, match="environment|training provenance"):
         gate.lock_protocol(path, out)
     assert not out.exists()
 
@@ -272,7 +275,7 @@ def test_amendments_preserve_parent_and_require_new_post_outcome_holdout(locked,
     gate.record_outcome_access(out, cp, enrollment_manifest_path=ep)
     before = {str(p.relative_to(out)): p.read_bytes() for p in out.rglob("*") if p.is_file()}
     amended = deepcopy(spec)
-    amended["protocol_version"] = "1.1"
+    amended["protocol_version"] = "2.0"
     amended["endpoints"]["delta_min"] = .07
     amended["study"]["cohort_id"] = "fresh-v2"
     write_json(path, amended)
@@ -291,7 +294,7 @@ def test_amendments_preserve_parent_and_require_new_post_outcome_holdout(locked,
 def test_pilot_downgrade_is_prospective_only(locked, tmp_path):
     out, path, spec, cp, ep = locked
     pilot = deepcopy(spec)
-    pilot["protocol_version"] = "1.1"
+    pilot["protocol_version"] = "2.0"
     pilot["study"]["mode"] = "pilot_estimation"
     write_json(path, pilot)
     gate.amend_protocol(out, path, tmp_path / "pilot", reason="SYNTHETIC prospective estimation-only decision")
@@ -303,7 +306,7 @@ def test_pilot_downgrade_is_prospective_only(locked, tmp_path):
 def test_expanded_development_requires_new_holdout_and_preserves_all_exclusions(locked, tmp_path):
     out, _, _, _, _ = locked
     path, spec = complete_spec(tmp_path / "expanded", subject_ids=["001", "010", "new-development"])
-    spec["protocol_version"] = "1.1"
+    spec["protocol_version"] = "2.0"
     spec["study"]["cohort_id"] = "fresh-expanded"
     write_json(path, spec)
     with pytest.raises(gate.ProtocolError, match="expanded-development"):

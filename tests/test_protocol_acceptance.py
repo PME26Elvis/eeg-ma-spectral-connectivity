@@ -318,7 +318,7 @@ def test_development_identity_exclusions_survive_two_expansions(acceptance_lock,
     forbidden = {"001", "010", "dev-old"}
     for generation, ids in ((2, ["001", "new-development"]), (3, ["latest-development"])):
         path, spec = complete_spec(tmp_path / f"source-{generation}", subject_ids=ids)
-        spec["protocol_version"] = f"1.{generation}"
+        spec["protocol_version"] = f"2.{generation}"
         spec["study"]["cohort_id"] = f"fresh-cohort-{generation}"
         _write_json(path, spec)
         cp = tmp_path / f"holdout-{generation}.json"

@@ -1,0 +1,112 @@
+name: Controlled dependency comparison
+run-name: Dependency comparison ${{ inputs.run_id }}
+
+'on':
+  workflow_dispatch:
+    inputs:
+      candidate_commit:
+        description: Exact 40-character commit containing the candidate environment profile in this repository
+        type: string
+        required: true
+      run_id:
+        description: Unique comparison ID (letters, digits, hyphens and underscores; up to 64 characters)
+        type: string
+        required: true
+      reason:
+        description: Prospective reason for the dependency change
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: dependency-comparison-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  NUMEXPR_NUM_THREADS: '1'
+  PYTHONHASHSEED: '0'
+  MPLBACKEND: Agg
+
+jobs:
+  compare:
+    name: Same synthetic analysis / two explicit environment locks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the analysis and baseline environment revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate declared comparison inputs before checkout
+        env:
+          CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+          COMPARISON_RUN_ID: ${{ inputs.run_id }}
+          COMPARISON_REASON: ${{ inputs.reason }}
+        run: |
+          mkdir -p outputs/dependency-comparison
+          python3 scripts/20_prepare_environment_comparison.py --validate-inputs-only --candidate-checkout .environment-candidate --candidate-commit "$CANDIDATE_COMMIT" --run-id "$COMPARISON_RUN_ID" --reason="$COMPARISON_REASON" --out-dir outputs/dependency-comparison/request | tee outputs/dependency-comparison/intent.json
+      - name: Check out candidate environment files only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.candidate_commit }}
+          path: .environment-candidate
+          sparse-checkout: environment
+          sparse-checkout-cone-mode: true
+          persist-credentials: false
+      - name: Validate explicit inputs and freeze comparison request
+        id: request
+        env:
+          CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+          COMPARISON_RUN_ID: ${{ inputs.run_id }}
+          COMPARISON_REASON: ${{ inputs.reason }}
+        run: |
+          python3 scripts/20_prepare_environment_comparison.py --candidate-checkout .environment-candidate --candidate-commit "$CANDIDATE_COMMIT" --run-id "$COMPARISON_RUN_ID" --reason="$COMPARISON_REASON" --out-dir outputs/dependency-comparison/request --github-output "$GITHUB_OUTPUT" | tee outputs/dependency-comparison/preflight.json
+      - name: Set up baseline interpreter
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ steps.request.outputs.baseline_python }}
+      - name: Rebuild and verify baseline environment
+        env:
+          EEG_MA_REFERENCE_SPEC: ${{ github.workspace }}/outputs/dependency-comparison/request/baseline/reference.json
+          EEG_MA_INSTALL_REPORT: ${{ github.workspace }}/outputs/dependency-comparison/baseline-install.json
+          BASELINE_LOCK: ${{ steps.request.outputs.baseline_lock }}
+        run: |
+          python -m venv .venv-comparison-baseline
+          .venv-comparison-baseline/bin/python -m pip install --force-reinstall --no-deps --require-hashes --only-binary=:all: --report "$EEG_MA_INSTALL_REPORT" -r "$BASELINE_LOCK"
+          .venv-comparison-baseline/bin/python -m pip install --no-deps --no-build-isolation -e .
+          .venv-comparison-baseline/bin/python -m pip check
+          .venv-comparison-baseline/bin/python scripts/18_environment.py verify --out outputs/dependency-comparison/baseline-environment.json
+          .venv-comparison-baseline/bin/python scripts/19_validate_numerics.py --out-dir outputs/dependency-comparison/baseline --require-reference-environment
+      - name: Set up candidate interpreter
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ steps.request.outputs.candidate_python }}
+      - name: Compare candidate dependencies using the same analysis code and inputs
+        env:
+          EEG_MA_REFERENCE_SPEC: ${{ github.workspace }}/outputs/dependency-comparison/request/candidate/reference.json
+          EEG_MA_INSTALL_REPORT: ${{ github.workspace }}/outputs/dependency-comparison/candidate-install.json
+          CANDIDATE_LOCK: ${{ steps.request.outputs.candidate_lock }}
+        run: |
+          python -m venv .venv-comparison-candidate
+          .venv-comparison-candidate/bin/python -m pip install --force-reinstall --no-deps --require-hashes --only-binary=:all: --report "$EEG_MA_INSTALL_REPORT" -r "$CANDIDATE_LOCK"
+          .venv-comparison-candidate/bin/python -m pip install --no-deps --no-build-isolation -e .
+          .venv-comparison-candidate/bin/python -m pip check
+          .venv-comparison-candidate/bin/python scripts/18_environment.py verify --out outputs/dependency-comparison/candidate-environment.json
+          .venv-comparison-candidate/bin/python scripts/19_validate_numerics.py --out-dir outputs/dependency-comparison/candidate --environment-spec "$EEG_MA_REFERENCE_SPEC" --require-reference-environment --compare-to outputs/dependency-comparison/baseline/numerical_report.json
+      - name: Preserve both environments, numerical outputs and comparison failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dependency-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/dependency-comparison/
+          if-no-files-found: warn
+          retention-days: 90

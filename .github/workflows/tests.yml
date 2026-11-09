@@ -1,24 +1,91 @@
-name: tests
+name: Compatibility CI
 
-on:
+'on':
   push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'configs/**'
+      - 'environment/**'
+      - 'docs/manifests/**/*.json'
+      - 'docs/precision/**/*.json'
+      - 'docs/precision/**/*.csv'
+      - 'docs/precision/**/*.txt'
+      - 'docs/protocol_readiness.json'
+      - 'pyproject.toml'
+      - '.github/workflows/**'
+      - '.gitignore'
   pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'configs/**'
+      - 'environment/**'
+      - 'docs/manifests/**/*.json'
+      - 'docs/precision/**/*.json'
+      - 'docs/precision/**/*.csv'
+      - 'docs/precision/**/*.txt'
+      - 'docs/protocol_readiness.json'
+      - 'pyproject.toml'
+      - '.github/workflows/**'
+      - '.gitignore'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: compatibility-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  NUMEXPR_NUM_THREADS: '1'
+  PYTHONHASHSEED: '0'
+  MPLBACKEND: Agg
 
 jobs:
-  pytest:
-    runs-on: ubuntu-latest
+  compatibility:
+    name: Compatibility / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ['3.10', '3.12']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install
+          cache-dependency-path: pyproject.toml
+      - name: Install supported dependency ranges
         run: |
+          mkdir -p outputs/compatibility
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-      - name: Test
-        run: pytest
+          python -m pip install -e '.[dev]' --report outputs/compatibility/install.json
+          python -m pip check
+      - name: Capture observed compatibility runtime
+        run: python scripts/18_environment.py capture --out outputs/compatibility/environment.json
+      - name: Test contracts and bounded numerical tolerances
+        run: python -m pytest --junitxml=outputs/compatibility/pytest.xml
+      - name: Retain compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compatibility-python-${{ matrix.python-version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/compatibility/
+          if-no-files-found: warn
+          retention-days: 30
