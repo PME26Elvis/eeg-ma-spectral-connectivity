@@ -2,6 +2,8 @@
 
 **Mental Arithmetic EEG — Spectral & Phase-Connectivity Analysis**
 
+> **實驗與簡報版本：** 完成實驗並向教授簡報時使用的專案內容，請見 [df6b139（commit 日期：2026-10-21）](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/tree/df6b1394f0f68c4ce5a3c6659f09cc7fb918ecc1)。
+
 以額葉腦電圖（EEG）辨識**休息**與**心算**狀態，並探討模型從同一受試者延伸至未見受試者時的泛化能力。研究由頻帶功率（BP）與相干性（Coherence）的既有分析方法出發，進一步比較額葉半球不對稱性、相位鎖定值（PLV）與虛部相位鎖定值（iPLV）。
 
 | 研究規模 | 主要驗證方式 | 核心觀察 |
