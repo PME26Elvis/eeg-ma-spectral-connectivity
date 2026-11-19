@@ -300,6 +300,14 @@ B 使用多 blocks、平衡 condition order，並匹配顯示與數字回應流�
 
 完整操作、演算法語意、參數、獨立數學測試與評估限制見 [手刻 Random Forest 指南](docs/random_forest.md)。
 
+## 可選分類器：手刻 LightGBM 式梯度提升樹
+
+一般 CV 可明確加入 **`LightGBM`**：以 Python 標準函式庫與 NumPy 手刻 binary logistic boosting、histogram 分箱、leaf-wise best-first 生長、histogram subtraction、GOSS 與零衝突 EFB。它補上逐輪修正預測的梯度提升方法；模型核心與調參沒有呼叫現成 LightGBM、XGBoost 或 sklearn tree／boosting estimator。
+
+[五分類器設定](configs/lightgbm.json) 同時包含既有三模型、RF 與 LightGBM，也可用 `--classifiers LightGBM` 單獨選用。所有模型共用每折 training-only LDA SFS；LightGBM 在各 inner-training fold 重新建立分箱，最終 outer-training 模型另保存逐輪來源重播證據。預設採小樹、正則化與完整資料；GOSS 可明確啟用，EFB 對具有互斥欄位的資料才可能壓縮。
+
+此處是**明確限定範圍的 LightGBM 式二分類實作**，沒有宣稱完整複製官方套件或取得新的真實 EEG 成績。使用方式、數學語意、模型封存及測試見 [LightGBM 指南](docs/lightgbm.md)。
+
 ## 相關資料與參考文獻
 
 研究的 [完整結果摘要](docs/final_results_summary.md)、[方法定義](docs/method_definition.md)、[分類原始結果](results/final_validation/final_validation_summary.csv) 與 [最終圖表](results/final_figures/) 可供進一步查閱。

@@ -212,3 +212,11 @@ KFDA 的標準 formulation 使用 regularization parameter；為對應海報的 
 整合式 RF 使用當次 outer-training LDA SFS 的共同 selected subset，不另 fit scaler；手刻 inner search 依既有 stratified／participant splits 選參數，再於完整 outer-training refit。Outer test 不進入選擇或訓練。Inner mean accuracy 仍為選參數診斷，OOB 是 training-epoch 診斷，兩者都不能替代 held-out participant 評估。
 
 完整演算法、參數、safe JSON、來源重播與獨立數學驗證見 [Random Forest 方法文件](random_forest.md)。這項新增選項沒有更改 A 的 fixed-LDA protocol、B 的 LDA control matrix，也沒有新增歷史五人研究結果。
+
+## 13. 可選的手刻 LightGBM 式二分類器
+
+明確選用 `LightGBM` 時，使用 NumPy／標準函式庫實作的 binary logistic histogram boosting。每輪以梯度與 Hessian 建立有 L1／L2 正則化的 Newton tree，以全域 leaf-wise best-first 選擇下一個 split；支援 histogram subtraction、GOSS 與零衝突 EFB。有限實數特徵的 bins 與 bundle layout 只從當次 fit 的正有效權重 training rows 建立。
+
+模型使用與其他分類器相同的 outer-training LDA SFS subset，inner candidates 在各自 training partition 重新 fit 分箱及 boosting；依精確平均 inner accuracy 選參數，再以全部 outer-training refit。Integrated CV 停用 early stopping，樹數如需調整須放進 inner grid。Inter 保持受試者分組，intra 保持同人內 epoch-stratified 定義。
+
+這是限定於二分類、有限數值欄位的 LightGBM 式實作，不宣稱官方套件的全部功能、相同模型或相同效能。詳細公式、抽樣／平手／停止語意、JSON 與來源稽核範圍見 [LightGBM 方法文件](lightgbm.md)。新增選項沒有將 A 或 B 的既定 LDA 協定擴大為 classifier search。
