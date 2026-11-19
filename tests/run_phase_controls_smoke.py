@@ -158,8 +158,11 @@ def run(out_dir):
         require(len(bundle.epoch_ids) == 12, "A returned metadata copy mutated the artifact")
 
         before_files = {path.name: sha256_file(path) for path in (target / "features").iterdir()}
-        duplicate = cli("refuse-overwrite", *extract_args, expected_returncode=1, json_output=False)
-        require("Output already exists" in duplicate.stderr, "Duplicate extraction failed for the wrong reason")
+        duplicate = cli("refuse-overwrite", *extract_args, expected_returncode=2)
+        require(duplicate.get("status") == "blocked"
+                and "Output already exists" in duplicate.get("error", "")
+                and str(target / "features") in duplicate.get("error", ""),
+                "Duplicate extraction failed for the wrong reason")
         after_files = {path.name: sha256_file(path) for path in (target / "features").iterdir()}
         require(before_files == after_files, "Refused overwrite changed an immutable feature artifact")
         require(sha256_file(ROOT / "configs/confirmatory_protocol.json") == primary_protocol_sha,
