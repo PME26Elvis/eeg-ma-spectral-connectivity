@@ -59,6 +59,9 @@ def test_publication_and_csv_refuse_existing_and_canonical_outputs(tmp_path):
 def test_pipeline_evaluates_exactly_the_newly_extracted_features(tmp_path, monkeypatch):
     module = _pipeline()
     target = tmp_path / "run"
+    config = tmp_path / "new-config.json"
+    # The pipeline validates configuration before staging any child output.
+    config.write_bytes((ROOT / "configs/lab_replication.json").read_bytes())
     calls = []
 
     def run(script, *args):
@@ -77,11 +80,11 @@ def test_pipeline_evaluates_exactly_the_newly_extracted_features(tmp_path, monke
             (result / "complete.txt").write_text(script, encoding="utf-8")
 
     monkeypatch.setattr(module, "run", run)
-    monkeypatch.setattr(sys, "argv", ["run_all", "--raw-root", "new-raw", "--config", "new-config.json", "--out-root", str(target)])
+    monkeypatch.setattr(sys, "argv", ["run_all", "--raw-root", "new-raw", "--config", str(config), "--out-root", str(target)])
     assert module.main() == 0
     assert len(calls) == 5
     assert calls[3][1]["--features"] == calls[4][1]["--features"]
-    assert all(options["--config"] == "new-config.json" for _, options in calls)
+    assert all(options["--config"] == str(config) for _, options in calls)
     assert (target / "features" / "baseline" / "features_all.csv").is_file()
     assert (target / "results" / "baseline" / "intra" / "complete.txt").is_file()
     assert (target / "results" / "baseline" / "inter" / "complete.txt").is_file()
