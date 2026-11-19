@@ -292,6 +292,14 @@ CI 分成 **Compatibility CI** 與 **Reference numerical CI**：前者保留 Pyt
 
 B 使用多 blocks、平衡 condition order，並匹配顯示與數字回應流程；其 CopyControl 與 Type1 的辨識結果須與 A 的固定模型評估分開解讀。同人的 A/B sessions 不增加獨立人數，iPLV／ciPLV 的變化也不直接證明 artifact 或神經連結來源。計畫目前仍是 **draft／blocked**；實際設備、資料使用條件、收案預算與核准尚待確認。詳見 [控制設計與啟動條件](docs/phase_controls.md)。
 
+## 可選分類器：手刻 Random Forest
+
+一般受試者內／跨受試者 CV 現在可選用 **`RandomForest`**。其 [Python 核心](src/eeg_ma/random_forest.py) 僅使用標準函式庫與 NumPy，完整實作 weighted-Gini CART、bootstrap、每節點隨機特徵、機率平均、OOB 診斷、feature importance、可重現平行建樹及安全 JSON 模型；RF 的 inner-CV 調參也由專案自行實作。
+
+[四分類器設定](configs/random_forest.json) 可同時比較 LDA、RBF-SVM、KFDA 與 RF，也可用 `--classifiers RandomForest` 單獨選用。每折仍共用 training-only LDA SFS，RF 封存另保存搜尋、逐樹模型與可重播的來源證據。原三模型預設與此頁歷史分數維持原定義；OOB 僅為訓練診斷，新增能力的驗證使用 synthetic inputs。
+
+完整操作、演算法語意、參數、獨立數學測試與評估限制見 [手刻 Random Forest 指南](docs/random_forest.md)。
+
 ## 相關資料與參考文獻
 
 研究的 [完整結果摘要](docs/final_results_summary.md)、[方法定義](docs/method_definition.md)、[分類原始結果](results/final_validation/final_validation_summary.csv) 與 [最終圖表](results/final_figures/) 可供進一步查閱。

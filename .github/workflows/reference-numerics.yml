@@ -93,6 +93,8 @@ jobs:
           .venv-reference/bin/python scripts/22_build_report.py verify-historical --report outputs/reference/frozen-figures
       - name: Validate bounded phase controls without starting a new study
         run: .venv-reference/bin/python tests/run_phase_controls_smoke.py --out-dir outputs/reference/phase-controls
+      - name: Verify handcrafted forest and four-classifier CLIs on synthetic data
+        run: .venv-reference/bin/python tests/run_random_forest_smoke.py --out-dir outputs/reference/random-forest
       - name: Retain reference evidence and failure diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

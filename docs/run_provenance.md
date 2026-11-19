@@ -22,6 +22,8 @@ Identity 的 canonical JSON SHA-256 是 `run_id`。Absolute output path 和完�
 
 #11 起的新 run 使用 `identity_version=evaluation-2`，額外綁定 `evaluation_contracts` 與各 scope 的 `evaluation_contract.json`。Schema 2.0 的 splits 先依 stable epoch ID 排序；CSV row reorder 仍因來源 bytes 改變而有新的 run ID，但 train／test epoch membership 相同。Validator 會重建 inner／outer splits，檢查全部 sessions 的 subject 分組，並拒絕重新 hash 的錯誤 memberships。舊 `evaluation-1` archives 仍可稽核；無 stable IDs 的 legacy caller 保留 positional split 行為。
 
+明確指定 `classifiers` 的 run 使用 **`evaluation-3`**，各 scope 採 `eeg-evaluation-contract-2` 並綁定完整 classifier policy：ordered roster、共用 SFS、RF 演算法版本、參數／候選順序、selection scoring、tie 與 seed 規則。所有宣告模型都必須有完整 fold／epoch coverage，不能漏掉 RF 後仍被當成成功。沒有新欄位的設定保留原三模型與 `evaluation-2`；舊 archives 不會自動增加第四個模型。
+
 `grid_inner_accuracy` 與 `sfs_inner_accuracy` 在 contract 中明列為 selection diagnostics；outer held-out scores 才是該 CV 流程的 test performance。固定 development models 的 external inference 使用獨立 `fixed_model_external` analysis ID、outputs 與報表標題，詳見 [fixed external workflow](fixed_external.md)。
 
 同次 invocation 不在每個 experiment 重新讀取 code／environment 身分，避免一個矩陣的不同項目混用不同捕捉時點。執行中不應編輯程式或輸入檔；跨 invocation 有任何研究程式或依賴改變時，使用新的 output root。這是嚴格的研究執行識別，並非聲稱所有環境變動都必然影響數值。
@@ -39,6 +41,14 @@ Identity 的 canonical JSON SHA-256 是 `run_id`。Absolute output path 和完�
 Staging 可以供診斷，但不會自動當作完成實驗。重新執行會從新的 staging 開始；這個版本提供 **experiment-level resume**，沒有宣稱 fold-level checkpoint。Failed／interrupted staging 的清理由操作人員在確認不再需要後進行。
 
 Complete run 的任何 required file 遺失、截斷、內容／metadata 被更動或多出未記錄 artifact，都會拒絕 reuse。讀取 CSV 會保留 `001`、`1`、`NA` 等 literal identifiers，不讓 pandas 的預設 NA／數值推斷改變 subject identity。
+
+### Random Forest 的來源重播
+
+啟用 RF 的每個 scope 另外需要 `random_forest_inputs.csv` 與 `random_forest_audit.json`。前者封存完整 feature table，SHA 必須與 run identity 的 table SHA 相同；後者保存 inner candidate records、train／test epoch IDs、selected feature names、seeds、最佳參數、outer predictions／probabilities、最終模型 JSON、training importance 與 OOB 診斷。
+
+Validator 核對 splits、candidate 順序與 seed，重算 inner scores／候選平均／平手決策；從安全 JSON 還原 final forest，將來源 observations 依各樹 bootstrap draws routing，核對全部 node counts／class masses，再重算 outer probabilities／predictions 與 OOB votes／coverage／accuracy。僅重新 hash 不會讓矛盾的來源、模型或選參數記錄通過。
+
+Audit 明確標記 `verification_scope=source_bound_outer_model_prediction_replay_and_inner_selection_record_consistency_not_inner_refit`。它驗證 final model 的來源重播與 inner 記錄一致性，沒有宣稱重新訓練所有 inner forests 或重搜 final tree 的最佳 splits。Standalone model JSON 本身不含原始 X，僅能驗證結構與內部一致性。演算法與證據的完整邊界見 [Random Forest 指南](random_forest.md)。
 
 ## 3. Matrix 的預檢與 partial execution
 
@@ -85,6 +95,8 @@ Matrix writers 以 OS file lock 排除同時更新同一 root；process 結束�
 
 六支 runner 均提供 `--resume` 與 `--legacy-manifest`。新版 matrix 的總表在 `CURRENT.json` 指向的完整 report directory，CLI 會印出實際路徑。請勿再假設 matrix root 下同名 CSV 就是最新報告。
 
+這六支 runner 與 `run_all.py` 亦接受 `--classifiers`，effective roster 會進入 config snapshot 與 identity。Matrix 的 reference 必須與當次 roster 相同；四模型 run 不能以歷史三模型表的交集假裝具有完整 reference coverage。新 RF 研究須使用自己相符的 managed references。
+
 Canonical `results/`、`data/features/`、`data/raw/` 及其祖先均不能作為新輸出；透過 symlink 指回它們也會拒絕。Explicit `--out-root results/final_validation` 不會解除保護。變更方法／設定後，請使用具名新 root，例如：
 
 ```bash
@@ -113,5 +125,7 @@ python scripts/14_inventory_legacy.py \
 ## 6. 測試邊界
 
 測試包含真實的小型 SFS／LDA／SVM／KFDA 執行，以及六支 CLI 的 orchestration、partial aggregation、immutable resume、缺檔／錯 schema／錯 metadata、canonical path 和 interruption。這些測試不重跑正式五人研究矩陣，也不宣稱完成 private raw-to-result reproduction。
+
+RF 另有獨立有理數 split oracle、bootstrap／OOB 重算、模型 JSON 攻擊與 source-bound audit 測試，並以真實 `03`／`04` subprocess 驗證四模型及 immutable resume；reference artifact 保存 synthetic inputs、實際模型與命令紀錄。
 
 本機制是防止意外混用、無聲覆寫與不完整產物被當完成的工程契約；manifest 是可稽核的來源記錄，不是由外部信任方簽章的防篡改證明。

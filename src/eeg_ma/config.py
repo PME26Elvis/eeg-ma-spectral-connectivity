@@ -35,3 +35,5 @@ def _validate_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("第一階段 replication analysis 必須使用 7 個 frontal channels。")
     if len(cfg["bands_hz"]) != 6:
         raise ValueError("必須定義 6 個頻帶。")
+    from .classifier_config import classifier_policy
+    classifier_policy(cfg)

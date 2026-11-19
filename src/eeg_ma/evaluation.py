@@ -10,7 +10,8 @@ from sklearn.metrics import accuracy_score
 from sklearn.model_selection import LeaveOneGroupOut, StratifiedKFold
 
 from .extract import feature_columns
-from .models import kfda_grid_search, lda_pipeline, svm_grid_search
+from .classifier_config import classifier_policy, resolve_classifiers
+from .models import fit_random_forest, kfda_grid_search, lda_pipeline, svm_grid_search
 from .sfs import forward_select_lda
 
 
@@ -18,11 +19,11 @@ STABLE_SPLIT_POLICY = "stable_epoch_id_v1"
 LEGACY_SPLIT_POLICY = "legacy_positional_v1"
 
 
-def evaluation_contract(scope: str, *, stable_epoch_ids: bool = True) -> dict:
+def evaluation_contract(scope: str, *, stable_epoch_ids: bool = True, cfg: dict | None = None) -> dict:
     """Describe the estimand and the roles of inner/outer scores explicitly."""
     if scope not in {"intra", "inter"}:
         raise ValueError(f"Unknown evaluation scope: {scope}")
-    return {
+    result = {
         "schema_version": "eeg-evaluation-contract-1",
         "analysis_id": "grouped_lopo_learning_procedure" if scope == "inter" else "within_subject_nested_cv",
         "report_title": ("Grouped LOPO learning-procedure evaluation" if scope == "inter"
@@ -39,10 +40,14 @@ def evaluation_contract(scope: str, *, stable_epoch_ids: bool = True) -> dict:
             "grid_inner_accuracy": "hyperparameter_selection_after_sfs_on_reused_inner_folds; not_selection_independent",
         },
     }
+    if cfg is not None and "classifiers" in cfg:
+        result["schema_version"] = "eeg-evaluation-contract-2"
+        result["classifier_policy"] = classifier_policy(cfg)
+    return result
 
 
-def _write_evaluation_contract(out_dir: Path, scope: str, features: pd.DataFrame) -> None:
-    value = evaluation_contract(scope, stable_epoch_ids="epoch_id" in features)
+def _write_evaluation_contract(out_dir: Path, scope: str, features: pd.DataFrame, cfg: dict) -> None:
+    value = evaluation_contract(scope, stable_epoch_ids="epoch_id" in features, cfg=cfg)
     (out_dir / "evaluation_contract.json").write_text(
         json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
@@ -54,16 +59,17 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     available poster additionally reports an inter-subject *LDA* SFS result,
     but does not provide a separate SFS objective for SVM/KFDA.  The formal
     repo therefore uses training-only LDA inner-CV as the single SFS criterion
-    and compares all three classifiers on exactly the same selected subset.
+    and compares the declared classifiers on exactly the same selected subset.
     This interpretation is explicit in docs/method_definition.md and config.
     """
-    features = _validate_evaluation_input(features, cfg)
+    features = _validate_evaluation_input(features, cfg, scope="intra")
     out_dir = _new_output_dir(out_dir)
     fcols = feature_columns(features, str(cfg.get("feature_set", "all")))
 
     fold_rows: List[Dict[str, object]] = []
     pred_rows: List[Dict[str, object]] = []
     sfs_rows: List[Dict[str, object]] = []
+    rf_audits = []
 
     for comparison in sorted(features["comparison"].unique()):
         comp_df = features.loc[features["comparison"] == comparison].copy()
@@ -96,18 +102,15 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
                         "accepted": str(row["candidate_name"]) in selected_set,
                     })
 
-                models = []
-                lda = lda_pipeline().fit(Xtr_s, ytr)
-                models.append(("LDA", lda, {}, np.nan))
-
-                svm = svm_grid_search(cfg, inner_splits).fit(Xtr_s, ytr)
-                models.append(("RBF-SVM", svm.best_estimator_, svm.best_params_, float(svm.best_score_)))
-
-                kfda = kfda_grid_search(cfg, inner_splits).fit(Xtr_s, ytr)
-                models.append(("KFDA", kfda.best_estimator_, kfda.best_params_, float(kfda.best_score_)))
+                context = {"scope": "intra", "comparison": str(comparison),
+                           "subject": str(subject), "outer_fold": outer_fold}
+                models, rf_audit = _fit_classifiers(Xtr_s, ytr, cfg, inner_splits, context=context)
 
                 for model_name, model, best_params, inner_score in models:
                     pred = model.predict(Xte_s)
+                    if model_name == "RandomForest":
+                        rf_audits.append(_rf_outer_record(rf_audit, df, train_idx, test_idx,
+                                                         sfs.selected_names, model, Xte_s, pred))
                     acc = float(accuracy_score(yte, pred))
                     fold_rows.append({
                         "subject_id": subject,
@@ -141,19 +144,21 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     sfs_path.to_csv(out_dir / "intra_sfs_path.csv", index=False, encoding="utf-8-sig")
     _write_intra_summaries(folds, preds, out_dir)
     _write_feature_frequency(sfs_path, out_dir / "intra_feature_frequency.csv", mode="intra")
-    _write_evaluation_contract(out_dir, "intra", features)
+    _write_rf_evidence(out_dir, "intra", features, cfg, rf_audits)
+    _write_evaluation_contract(out_dir, "intra", features, cfg)
     return folds, preds
 
 
 def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Run leakage-safe outer LOPO-CV with group-aware inner validation."""
-    features = _validate_evaluation_input(features, cfg)
+    features = _validate_evaluation_input(features, cfg, scope="inter")
     out_dir = _new_output_dir(out_dir)
     fcols = feature_columns(features, str(cfg.get("feature_set", "all")))
 
     fold_rows: List[Dict[str, object]] = []
     pred_rows: List[Dict[str, object]] = []
     sfs_rows: List[Dict[str, object]] = []
+    rf_audits = []
 
     for comparison in sorted(features["comparison"].unique()):
         df = features.loc[features["comparison"] == comparison].reset_index(drop=True)
@@ -189,18 +194,16 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
                     "accepted": str(row["candidate_name"]) in selected_set,
                 })
 
-            models = []
-            lda = lda_pipeline().fit(Xtr_s, ytr)
-            models.append(("LDA", lda, {}, np.nan))
-
-            svm = svm_grid_search(cfg, inner_splits).fit(Xtr_s, ytr)
-            models.append(("RBF-SVM", svm.best_estimator_, svm.best_params_, float(svm.best_score_)))
-
-            kfda = kfda_grid_search(cfg, inner_splits).fit(Xtr_s, ytr)
-            models.append(("KFDA", kfda.best_estimator_, kfda.best_params_, float(kfda.best_score_)))
+            context = {"scope": "inter", "comparison": str(comparison),
+                       "subject": held_out, "outer_fold": outer_fold}
+            models, rf_audit = _fit_classifiers(Xtr_s, ytr, cfg, inner_splits,
+                                              context=context, groups=gtr)
 
             for model_name, model, best_params, inner_score in models:
                 pred = model.predict(Xte_s)
+                if model_name == "RandomForest":
+                    rf_audits.append(_rf_outer_record(rf_audit, df, train_idx, test_idx,
+                                                     sfs.selected_names, model, Xte_s, pred))
                 acc = float(accuracy_score(yte, pred))
                 fold_rows.append({
                     "held_out_subject": held_out,
@@ -235,17 +238,19 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     sfs_path.to_csv(out_dir / "inter_sfs_path.csv", index=False, encoding="utf-8-sig")
     _write_inter_summaries(folds, preds, out_dir)
     _write_feature_frequency(sfs_path, out_dir / "inter_feature_frequency.csv", mode="inter")
-    _write_evaluation_contract(out_dir, "inter", features)
+    _write_rf_evidence(out_dir, "inter", features, cfg, rf_audits)
+    _write_evaluation_contract(out_dir, "inter", features, cfg)
     return folds, preds
 
 
-def _validate_evaluation_input(features: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
+def _validate_evaluation_input(features: pd.DataFrame, cfg: Dict, *, scope=None) -> pd.DataFrame:
     """Keep historical learning semantics, but reject ambiguous typed inputs.
 
     The low-level CV functions retain support for small, schema-less legacy
     fixtures. Trusted CLI runs require schema v2 or an explicit legacy adapter
     before calling these functions; no acquisition identity is invented here.
     """
+    policy = classifier_policy(cfg)
     required = {"subject_id", "comparison", "class_label"}
     if features.empty or not required.issubset(features.columns):
         raise ValueError("Evaluation needs non-empty subject/comparison/class labels")
@@ -261,6 +266,21 @@ def _validate_evaluation_input(features: pd.DataFrame, cfg: Dict) -> pd.DataFram
     fcols = feature_columns(features, str(cfg.get("feature_set", "all")))
     if not np.isfinite(features[fcols].to_numpy(dtype=float)).all():
         raise ValueError("Evaluation features contain NaN or Inf")
+    if policy["random_forest"] is not None and scope is not None:
+        from .classifier_config import forest_constructor_parameters
+        from .random_forest import HandcraftedRandomForestClassifier
+        sizes = []
+        for _, comparison in features.groupby("comparison", sort=True):
+            groups = ([part.reset_index(drop=True) for _, part in comparison.groupby("subject_id", sort=True)]
+                      if scope == "intra" else [comparison.reset_index(drop=True)])
+            for frame in groups:
+                for _, _, _, inner in _evaluation_indices(frame, cfg, scope):
+                    sizes.extend(len(train) for train, _ in inner)
+        cap = cfg["sfs"].get("max_features")
+        available = min(len(fcols), int(cap)) if cap is not None else len(fcols)
+        for candidate in policy["random_forest"]["candidates"]:
+            HandcraftedRandomForestClassifier(**forest_constructor_parameters(candidate)).validate_parameters(
+                n_features=available, n_samples=min(sizes))
     return features
 
 
@@ -278,6 +298,54 @@ def _prediction_metadata(row: pd.Series) -> Dict[str, object]:
         return {"identity_status": "legacy_untracked"}
     from .schema import META_COLUMNS
     return {**{key: row[key] for key in META_COLUMNS}, "identity_status": "schema_validated"}
+
+
+def _fit_classifiers(Xtr, ytr, cfg, inner_splits, *, context, groups=None):
+    models, rf_audit = [], None
+    for name in resolve_classifiers(cfg):
+        if name == "LDA":
+            models.append((name, lda_pipeline().fit(Xtr, ytr), {}, np.nan))
+        elif name == "RBF-SVM":
+            search = svm_grid_search(cfg, inner_splits).fit(Xtr, ytr)
+            models.append((name, search.best_estimator_, search.best_params_, float(search.best_score_)))
+        elif name == "KFDA":
+            search = kfda_grid_search(cfg, inner_splits).fit(Xtr, ytr)
+            models.append((name, search.best_estimator_, search.best_params_, float(search.best_score_)))
+        else:
+            search = fit_random_forest(cfg, Xtr, ytr, inner_splits, context=context, groups=groups)
+            models.append((name, search.model, search.best_params, search.best_score))
+            rf_audit = search.audit
+    return models, rf_audit
+
+
+def _rf_outer_record(audit, frame, train, test, selected_names, model, Xtest, prediction):
+    """Only the completed model sees held-out feature values for prediction."""
+    if "epoch_id" in frame:
+        identities = frame.epoch_id.astype(str).to_numpy()
+        identity_status = "schema_validated"
+    else:
+        identities = np.array([f"legacy-row-{i}" for i in range(len(frame))])
+        identity_status = "legacy_untracked"
+    return {**audit, "identity_status": identity_status,
+        "selected_features": list(selected_names), "train_epoch_ids": identities[train].tolist(),
+        "test_epoch_ids": identities[test].tolist(), "test_classes": model.classes_.tolist(),
+        "test_predictions": prediction.tolist(), "test_probabilities": model.predict_proba(Xtest).tolist()}
+
+
+def _write_rf_evidence(out_dir, scope, features, cfg, records):
+    if "RandomForest" not in resolve_classifiers(cfg):
+        return
+    from .provenance import sha256_file
+    source = out_dir / "random_forest_inputs.csv"
+    # Exactly the same serialization is hashed by build_run_identity; the
+    # complete source table binds selected train/test tensors to that identity.
+    features.to_csv(source, index=False, encoding="utf-8", lineterminator="\n")
+    audit = {"schema_version": "eeg-random-forest-cv-1", "scope": scope,
+             "classifier_policy": classifier_policy(cfg), "input_table_sha256": sha256_file(source),
+             "verification_scope": "source_bound_outer_model_prediction_replay_and_inner_selection_record_consistency_not_inner_refit",
+             "folds": records}
+    (out_dir / "random_forest_audit.json").write_text(
+        json.dumps(audit, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
 def _evaluation_indices(df: pd.DataFrame, cfg: Dict, scope: str):
@@ -321,7 +389,7 @@ def make_evaluation_splits(features: pd.DataFrame, cfg: Dict, scope: str) -> Lis
     """
     from .schema import validate_feature_table
     validate_feature_table(features)
-    _validate_evaluation_input(features, cfg)
+    _validate_evaluation_input(features, cfg, scope=scope)
     return _split_records(features, cfg, scope)
 
 
@@ -438,9 +506,9 @@ def _write_inter_summaries(folds: pd.DataFrame, preds: pd.DataFrame, out_dir: Pa
 def _write_feature_frequency(sfs_path: pd.DataFrame, path: Path, mode: str) -> None:
     """Count accepted SFS features once per outer fold.
 
-    Selection is common to all three downstream classifiers, so counting it
+    Selection is common to every declared downstream classifier, so counting it
     from the classifier-specific fold table would multiply every occurrence by
-    three and give a misleading frequency.  The SFS path is the source of truth.
+    the classifier count and give a misleading frequency. The SFS path is the source of truth.
     """
     if sfs_path.empty:
         pd.DataFrame().to_csv(path, index=False)

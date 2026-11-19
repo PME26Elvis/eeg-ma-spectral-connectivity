@@ -12,7 +12,7 @@ from eeg_ma.config import load_config
 from eeg_ma.evaluation import run_inter_subject
 from eeg_ma.extensions import merge_baseline_and_extensions
 from eeg_ma.extract import feature_columns
-from eeg_ma.experiment_runs import add_identity_arguments, load_features, prepare_matrix, source_inputs
+from eeg_ma.experiment_runs import add_identity_arguments, load_features, prepare_matrix, source_inputs, add_classifier_arguments, apply_classifier_arguments
 from eeg_ma.provenance import read_csv_literal
 
 
@@ -154,12 +154,13 @@ def main() -> int:
     p.add_argument("--plv-only-results-root", default=None)
     p.add_argument("--experiments", nargs="*", default=None)
     add_identity_arguments(p)
+    add_classifier_arguments(p)
     args = p.parse_args()
+    cfg = apply_classifier_arguments(load_config(args.config), args.classifiers)
     baseline = load_features(args.baseline_features, args.legacy_manifest)
     extensions = load_features(args.extension_features, args.legacy_manifest)
     iplv = load_features(args.iplv_features, args.legacy_manifest)
     merged = merge_baseline_and_extensions(merge_baseline_and_extensions(baseline, extensions), iplv)
-    cfg = load_config(args.config)
     spec = json.loads(Path(args.validation_config).read_text(encoding="utf-8"))
     selected = _select_experiments(spec, args.experiments)
     all_experiments = spec.get("experiments", [])

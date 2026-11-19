@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from eeg_ma.config import load_config
-from eeg_ma.experiment_runs import add_identity_arguments, load_features, prepare_matrix, source_inputs
+from eeg_ma.experiment_runs import add_identity_arguments, load_features, prepare_matrix, source_inputs, add_classifier_arguments, apply_classifier_arguments
 from eeg_ma.provenance import read_csv_literal
 
 
@@ -30,9 +30,10 @@ def main() -> int:
     p.add_argument("--out-root", default="outputs/results/feature_sets")
     p.add_argument("--feature-sets", nargs="+", choices=["bp", "coh"], default=["bp", "coh"])
     add_identity_arguments(p)
+    add_classifier_arguments(p)
     args = p.parse_args()
+    cfg = apply_classifier_arguments(load_config(args.config), args.classifiers)
     features = load_features(args.features, args.legacy_manifest)
-    cfg = load_config(args.config)
     experiments = [{"name": name, "feature_set": name} for name in ("bp", "coh")]
     matrix, evaluator = prepare_matrix(features, cfg, experiments=experiments, selected=args.feature_sets,
         scopes=("intra", "inter"), out_root=args.out_root,
