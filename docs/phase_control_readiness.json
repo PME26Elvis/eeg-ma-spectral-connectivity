@@ -1,0 +1,169 @@
+{
+  "ready_to_lock": false,
+  "status": "blocked",
+  "findings": [
+    {
+      "code": "CONTROL_DECISION",
+      "path": "data.cohort_id",
+      "message": "Explicit verified value required; do not infer unavailable facts"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "acquisition.device",
+      "message": "Explicit verified value required; do not infer unavailable facts"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "acquisition.units",
+      "message": "Explicit verified value required; do not infer unavailable facts"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "acquisition.reference",
+      "message": "Explicit verified value required; do not infer unavailable facts"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "acquisition.ground",
+      "message": "Explicit verified value required; do not infer unavailable facts"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "recruitment.resource_and_sample_size_rationale",
+      "message": "Explicit verified value required; do not infer unavailable facts"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "approval.registration_reference",
+      "message": "Explicit verified value required; do not infer unavailable facts"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "approval.data_use_terms",
+      "message": "Explicit verified value required; do not infer unavailable facts"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "status",
+      "message": "Draft must be reviewed and marked ready before plan freeze"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "data.availability",
+      "message": "Arrange new data access before acquisition; existing discovery data cannot activate B"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "acquisition.verified",
+      "message": "Documented verification required"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "approval.resources_confirmed",
+      "message": "Documented verification required"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "acquisition.artifact_annotations_available",
+      "message": "Record whether blinded artifact annotation is available"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "acquisition.effective_rank",
+      "message": "Measure and record input rank from feasibility data in [1,7]"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "procedure.response_seconds",
+      "message": "Fix one finite response window for both conditions before acquisition"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "recruitment",
+      "message": "Prespecify integer unique-person target and cap: 4 <= target <= cap <= 10000"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "matrix.reference_sensitivity",
+      "message": "Resolve feasibility and record enabled/disabled plus reason before seeing outcomes"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "matrix.artifact_sensitivity",
+      "message": "Resolve feasibility and record enabled/disabled plus reason before seeing outcomes"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "approval.registered_at",
+      "message": "approval.registered_at: explicit timezone-aware timestamp required"
+    },
+    {
+      "code": "CONTROL_DECISION",
+      "path": "approval.approved_at",
+      "message": "approval.approved_at: explicit timezone-aware timestamp required"
+    },
+    {
+      "code": "CONTROL_EVIDENCE",
+      "path": "evidence.acquisition_feasibility",
+      "message": "Actual hashed feasibility/permission/identity evidence required"
+    },
+    {
+      "code": "CONTROL_EVIDENCE",
+      "path": "evidence.data_use_approval",
+      "message": "Actual hashed feasibility/permission/identity evidence required"
+    },
+    {
+      "code": "CONTROL_EVIDENCE",
+      "path": "evidence.participant_registry",
+      "message": "Actual hashed feasibility/permission/identity evidence required"
+    },
+    {
+      "code": "CONTROL_EVIDENCE",
+      "path": "evidence",
+      "message": "evidence.acquisition_feasibility: actual file path and SHA-256 required"
+    }
+  ],
+  "cells": [
+    {
+      "cell_id": "B:recorded_reference:plv:LDA",
+      "arm": "recorded_reference",
+      "representation": "plv",
+      "classifier": "LDA",
+      "comparison": "copy_control_vs_type1",
+      "features": 21,
+      "band_hz": [
+        8.0,
+        13.0
+      ]
+    },
+    {
+      "cell_id": "B:recorded_reference:iplv:LDA",
+      "arm": "recorded_reference",
+      "representation": "iplv",
+      "classifier": "LDA",
+      "comparison": "copy_control_vs_type1",
+      "features": 21,
+      "band_hz": [
+        8.0,
+        13.0
+      ]
+    },
+    {
+      "cell_id": "B:recorded_reference:ciplv:LDA",
+      "arm": "recorded_reference",
+      "representation": "ciplv",
+      "classifier": "LDA",
+      "comparison": "copy_control_vs_type1",
+      "features": 21,
+      "band_hz": [
+        8.0,
+        13.0
+      ]
+    }
+  ],
+  "scope": "prospective_B_sensitivity_plan_A_primary_unchanged",
+  "matrix_status": "provisional_pending_readiness",
+  "maximum_planned_cells": 9,
+  "plan_sha256": "c2a8b314bc84956be1bb71fe8ba8a78232ac34eb3ad92348650198234ad7ffbc",
+  "validator_sha256": "c9f5771f10af96655127497be681ab93e54ff586e21bbd906632538eaaa4acfb"
+}

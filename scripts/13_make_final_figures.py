@@ -1,8 +1,10 @@
+"""Render only complete, prediction-derived participant result matrices."""
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
+import textwrap
 
 import matplotlib
 matplotlib.use("Agg")
@@ -12,335 +14,299 @@ import numpy as np
 import pandas as pd
 
 from eeg_ma.artifacts import new_output_directory
-from eeg_ma.provenance import input_inventory, read_csv_literal, resolve_report_root, sha256_file, validate_complete_run
+from eeg_ma.constants import DEFAULT_CHANNELS, channel_pairs
+from eeg_ma.historical_reporting import (BAND_EXPERIMENTS, CLASSIFIERS, STORY_EXPERIMENTS,
+    rebuild_historical_results, read_historical_report, validate_historical_report, write_report_contents)
+from eeg_ma.result_contract import ResultContractError, validate_result_matrix
+from eeg_ma.provenance import protect_output, sha256_file
 
 
-CLASSIFIERS = ["KFDA", "LDA", "RBF-SVM"]
-CHANNEL_POSITIONS = {
-    "FP1": (-0.42, 0.78),
-    "FP2": (0.42, 0.78),
-    "F7": (-0.88, 0.28),
-    "F3": (-0.42, 0.34),
-    "Fz": (0.00, 0.38),
-    "F4": (0.42, 0.34),
-    "F8": (0.88, 0.28),
-}
+CHANNEL_POSITIONS = {"FP1": (-0.42, 0.78), "FP2": (0.42, 0.78), "F7": (-0.88, 0.28),
+    "F3": (-0.42, 0.34), "Fz": (0.0, 0.38), "F4": (0.42, 0.34), "F8": (0.88, 0.28)}
+LABELS = {"poster_baseline": "Poster baseline\nBP+COH", "e1_asymmetry": "+ Asymmetry",
+    "e2_plv": "+ PLV", "plv_all_bands": "PLV all bands", "plv_alpha_only": "Alpha PLV only",
+    "iplv_only": "iPLV all bands"}
+METRIC_LABELS = {"accuracy": "Participant accuracy", "balanced_accuracy": "Participant balanced accuracy"}
 
 
-def _read(path: Path) -> pd.DataFrame:
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Missing required result file: {path}\n"
-            "Run scripts/12_run_final_validation.py first and keep the formal result tree intact."
-        )
-    return read_csv_literal(path)
+def _context(table: pd.DataFrame) -> dict:
+    required = {"analysis_id", "run_id", "cohort_id", "protocol_id", "experiment", "classifier", "comparison"}
+    if table.empty or required - set(table) or table.columns.duplicated().any():
+        raise ResultContractError("Figure inputs require identified prediction-derived results")
+    for column in required:
+        if any(not isinstance(value, str) or not value or value != value.strip() for value in table[column]):
+            raise ResultContractError(f"Figure inputs require literal nonempty {column} identities")
+    for column in ("analysis_id", "cohort_id", "protocol_id"):
+        if table[column].nunique(dropna=False) != 1 or not isinstance(table[column].iloc[0], str) or not table[column].iloc[0].strip():
+            raise ResultContractError(f"Figure inputs mix or omit {column}")
+    if table[list(required)].isna().any().any():
+        raise ResultContractError("Figure input result identities are missing")
+    if (table.groupby("experiment").run_id.nunique() != 1).any():
+        raise ResultContractError("Figure inputs mix different parent runs for one experiment")
+    return {column: table[column].iloc[0] for column in ("analysis_id", "cohort_id", "protocol_id")}
 
 
-def _save(fig: plt.Figure, base: Path) -> list[Path]:
+def _summary_cells(table, experiments, *, metric):
+    if metric not in METRIC_LABELS:
+        raise ResultContractError("Figure metric must be accuracy or balanced_accuracy")
+    _context(table)
+    keys = ["experiment", "classifier", "comparison"]
+    if table.duplicated(keys).any():
+        raise ResultContractError("Figure summary contains duplicate matrix keys")
+    needed = [f"{metric}_mean", f"{metric}_std", "n_subjects", "n_ba_eligible", "aggregation", "uncertainty"]
+    if set(needed) - set(table):
+        raise ResultContractError("Figure summary lacks participant metric/N/SD metadata")
+    work = table.loc[table.comparison.eq("rest1_vs_type1") & table.experiment.isin(experiments)].copy()
+    expected = pd.DataFrame([{"experiment": experiment, "classifier": classifier, "comparison": "rest1_vs_type1"}
+                             for experiment in experiments for classifier in CLASSIFIERS])
+    validate_result_matrix(work, expected, keys=keys)
+    numeric = work[[f"{metric}_mean", f"{metric}_std", "n_subjects", "n_ba_eligible"]].to_numpy(dtype=float)
+    if not np.isfinite(numeric).all() or not work[f"{metric}_mean"].between(0, 1).all() or (work[f"{metric}_std"] < 0).any():
+        raise ResultContractError("Figure metric or participant SD is undefined/nonfinite or outside its range")
+    if work.n_subjects.nunique() != 1 or (work.n_subjects < 2).any() or (work.n_subjects % 1 != 0).any():
+        raise ResultContractError("Figure cells require the same participant N and an estimable sample SD")
+    if metric == "balanced_accuracy" and not work.n_ba_eligible.eq(work.n_subjects).all():
+        raise ResultContractError("Balanced-accuracy figure requires both classes for every paired participant")
+    if not work.aggregation.eq("equal_participant").all() or not work.uncertainty.eq("sample_sd_descriptive_no_ci").all():
+        raise ResultContractError("Figure aggregation or uncertainty convention is incompatible")
+    return work
+
+
+def _save(fig, base, *, source, metric, metadata=None, uncertainty="between-participant sample SD; descriptive, no CI"):
+    try:
+        base = protect_output(base)
+        if any(base.with_suffix(suffix).exists() for suffix in (".png", ".svg", ".csv", ".json")):
+            raise FileExistsError("Figure artifacts already exist; choose a new immutable output directory")
+    except (ValueError, FileExistsError):
+        plt.close(fig)
+        raise
+    meta = metadata or {}
+    required = {"cohort_id", "protocol_id", "analysis_id", "source_sha256", "subject_ids_by_comparison", "n_subjects_by_comparison"}
+    if required - set(meta) or "comparison" not in source or source.comparison.nunique() != 1:
+        plt.close(fig)
+        raise ResultContractError("Figure publication requires source-hash metadata and a declared participant roster by comparison")
+    if not isinstance(meta["source_sha256"], str) or len(meta["source_sha256"]) != 64 or any(c not in "0123456789abcdef" for c in meta["source_sha256"]):
+        plt.close(fig)
+        raise ResultContractError("Figure source SHA-256 metadata is invalid")
+    comparison = source.comparison.iloc[0]
+    subjects = meta["subject_ids_by_comparison"].get(comparison)
+    if not isinstance(subjects, list) or not subjects or len(subjects) != len(set(subjects)):
+        plt.close(fig)
+        raise ResultContractError("Figure participant roster is missing or duplicate")
+    n = len(subjects)
+    cohort_subjects = set().union(*(set(ids) for ids in meta["subject_ids_by_comparison"].values()))
+    if meta.get("n_subjects") != len(cohort_subjects):
+        plt.close(fig)
+        raise ResultContractError("Figure metadata total N contradicts its participant roster")
+    if meta["n_subjects_by_comparison"].get(comparison) != n:
+        plt.close(fig)
+        raise ResultContractError("Figure metadata N contradicts its participant roster")
+    if "n_subjects" in source and not source.n_subjects.eq(n).all():
+        plt.close(fig)
+        raise ResultContractError("Figure plotted N differs from its declared participant roster")
+    if "subject_id" in source and set(source.subject_id) != set(subjects):
+        plt.close(fig)
+        raise ResultContractError("Figure plotted subjects differ from its declared participant roster")
+    for column in ("cohort_id", "protocol_id", "analysis_id"):
+        if column in source and set(source[column]) != {meta[column]}:
+            plt.close(fig)
+            raise ResultContractError("Figure source cohort/protocol/analysis identity differs from its metadata")
+    cohort, protocol = meta["cohort_id"], meta["protocol_id"]
+    caption = f"Metric: {metric}; N={n} participants; {uncertainty}. Cohort: {cohort}; protocol: {protocol}."
+    if meta.get("source_sha256"):
+        caption += f" Source SHA-256: {meta['source_sha256']}."
+    if meta.get("scope") == "partial_historical_matrix":
+        caption = "PARTIAL HISTORICAL REPORT. " + caption
+    fig.text(0.02, -0.01, textwrap.fill(caption, 120), ha="left", va="top", fontsize=7)
     base.parent.mkdir(parents=True, exist_ok=True)
-    png = base.with_suffix(".png")
-    svg = base.with_suffix(".svg")
-    fig.savefig(png, dpi=220, bbox_inches="tight")
-    fig.savefig(svg, bbox_inches="tight")
+    paths = [base.with_suffix(suffix) for suffix in (".png", ".svg")]
+    for path in paths:
+        fig.savefig(path, dpi=220, bbox_inches="tight")
     plt.close(fig)
-    return [png, svg]
+    source.to_csv(base.with_suffix(".csv"), index=False, encoding="utf-8-sig")
+    sidecar = {"metric": metric, "n_subjects": int(n) if isinstance(n, (int, np.integer)) else n,
+        "uncertainty": uncertainty, "cohort_id": cohort, "protocol_id": protocol,
+        "analysis_id": meta.get("analysis_id"), "scope": meta.get("scope"),
+        "comparison": comparison, "subject_ids": subjects,
+        "source_sha256": meta.get("source_sha256"), "numerical_source": base.with_suffix(".csv").name,
+        "numerical_source_sha256": sha256_file(base.with_suffix(".csv"))}
+    base.with_suffix(".json").write_text(json.dumps(sidecar, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    return paths
 
 
-def _grouped_accuracy(
-    table: pd.DataFrame,
-    experiments: list[str],
-    labels: dict[str, str],
-    title: str,
-    out_base: Path,
-) -> list[Path]:
-    work = table.loc[
-        (table["comparison"] == "rest1_vs_type1")
-        & (table["experiment"].isin(experiments))
-        & (table["classifier"].isin(CLASSIFIERS))
-    ].copy()
-    if work.empty:
-        raise ValueError(f"No rows available for {title}")
-
+def _grouped_accuracy(table, experiments, labels, title, out_base, *, metric="accuracy", metadata=None):
+    work = _summary_cells(table, experiments, metric=metric)
+    values = work.set_index(["experiment", "classifier"])
     x = np.arange(len(experiments), dtype=float)
     width = 0.8 / len(CLASSIFIERS)
     fig, ax = plt.subplots(figsize=(max(9.0, 1.45 * len(experiments)), 5.2))
-
-    for i, clf in enumerate(CLASSIFIERS):
-        vals = []
-        errs = []
-        for exp in experiments:
-            row = work.loc[(work["experiment"] == exp) & (work["classifier"] == clf)]
-            vals.append(float(row["accuracy_mean"].iloc[0]) if len(row) else np.nan)
-            errs.append(float(row["accuracy_std"].iloc[0]) if len(row) else np.nan)
-        offset = (i - (len(CLASSIFIERS) - 1) / 2.0) * width
-        ax.bar(x + offset, vals, width=width, yerr=errs, capsize=3, label=clf)
-
+    for i, classifier in enumerate(CLASSIFIERS):
+        rows = values.loc[[(experiment, classifier) for experiment in experiments]]
+        ax.bar(x + (i - 1) * width, rows[f"{metric}_mean"].to_numpy(), width=width,
+               yerr=rows[f"{metric}_std"].to_numpy(), capsize=3, label=classifier)
     ax.axhline(0.5, linestyle="--", linewidth=1.2, alpha=0.6)
-    ax.set_xticks(x)
-    ax.set_xticklabels([labels.get(e, e) for e in experiments], rotation=18, ha="right")
-    ax.set_ylim(0.35, 0.9)
-    ax.set_ylabel("LOPO accuracy")
+    ax.set_xticks(x, [labels.get(e, e) for e in experiments], rotation=18, ha="right")
+    ax.set_ylim(0.0, 1.0)
+    ax.set_ylabel(METRIC_LABELS[metric])
     ax.set_title(title)
     ax.legend(frameon=False)
     ax.grid(axis="y", alpha=0.2)
-    return _save(fig, out_base)
+    return _save(fig, out_base, source=work, metric=metric, metadata=metadata)
 
 
-def plot_analysis_story(
-    extension_summary: pd.DataFrame,
-    decomposition_summary: pd.DataFrame,
-    final_summary: pd.DataFrame,
-    out_dir: Path,
-) -> list[Path]:
-    # Keep only the canonical rows needed for the report story.  Duplicate
-    # references across tables are intentionally resolved by the first source.
-    pieces = []
-
-    ext = extension_summary.loc[
-        (extension_summary["scope"] == "inter")
-        & (extension_summary["comparison"] == "rest1_vs_type1")
-        & (extension_summary["experiment"].isin(["poster_baseline", "e1_asymmetry", "e2_plv"]))
-    ].copy()
-    pieces.append(ext[["experiment", "comparison", "classifier", "accuracy_mean", "accuracy_std"]])
-
-    dec = decomposition_summary.loc[
-        (decomposition_summary["scope"] == "inter")
-        & (decomposition_summary["comparison"] == "rest1_vs_type1")
-        & (decomposition_summary["experiment"] == "e2a_plv_only")
-    ].copy()
-    pieces.append(dec[["experiment", "comparison", "classifier", "accuracy_mean", "accuracy_std"]])
-
-    fin = final_summary.loc[
-        (final_summary["comparison"] == "rest1_vs_type1")
-        & (final_summary["experiment"].isin(["plv_alpha_only", "iplv_only"]))
-    ].copy()
-    pieces.append(fin[["experiment", "comparison", "classifier", "accuracy_mean", "accuracy_std"]])
-
-    story = pd.concat(pieces, ignore_index=True).drop_duplicates(
-        ["experiment", "comparison", "classifier"], keep="first"
-    )
-
-    experiments = [
-        "poster_baseline",
-        "e1_asymmetry",
-        "e2_plv",
-        "e2a_plv_only",
-        "plv_alpha_only",
-        "iplv_only",
-    ]
-    labels = {
-        "poster_baseline": "Poster baseline\nBP+COH",
-        "e1_asymmetry": "+ Asymmetry",
-        "e2_plv": "+ PLV",
-        "e2a_plv_only": "PLV only",
-        "plv_alpha_only": "Alpha PLV only",
-        "iplv_only": "iPLV only",
-    }
-    return _grouped_accuracy(
-        story,
-        experiments,
-        labels,
-        "Rest 1 vs Type 1 — analysis progression",
-        out_dir / "final_story_type1_inter",
-    )
+def plot_analysis_story(extension_summary, decomposition_summary, final_summary, out_dir, *, metric="accuracy", metadata=None):
+    # Every role has one source; duplicate cells must never be resolved by order.
+    for table in (extension_summary, decomposition_summary, final_summary):
+        _context(table)
+        if table.duplicated(["experiment", "classifier", "comparison"]).any():
+            raise ResultContractError("Analysis-story source has duplicate result cells")
+    story = pd.concat([
+        extension_summary.loc[extension_summary.experiment.isin(["poster_baseline", "e1_asymmetry", "e2_plv"])],
+        decomposition_summary.loc[decomposition_summary.experiment.eq("plv_all_bands")],
+        final_summary.loc[final_summary.experiment.isin(["plv_alpha_only", "iplv_only"])],
+    ], ignore_index=True)
+    return _grouped_accuracy(story, list(STORY_EXPERIMENTS), LABELS,
+        "Rest 1 vs Type 1 — analysis progression", out_dir / "final_story_type1_inter", metric=metric, metadata=metadata)
 
 
-def plot_band_ranking(final_summary: pd.DataFrame, out_dir: Path) -> list[Path]:
-    mapping = {
-        "plv_delta_only": "delta",
-        "plv_theta_only": "theta",
-        "plv_alpha_only": "alpha",
-        "plv_beta_low_only": "beta-low",
-        "plv_beta_high_only": "beta-high",
-        "plv_gamma_only": "gamma",
-    }
-    work = final_summary.loc[
-        (final_summary["comparison"] == "rest1_vs_type1")
-        & (final_summary["experiment"].isin(mapping))
-    ].copy()
-    work["band"] = work["experiment"].map(mapping)
-    order = ["delta", "theta", "alpha", "beta-low", "beta-high", "gamma"]
-
-    x = np.arange(len(order), dtype=float)
-    width = 0.8 / len(CLASSIFIERS)
-    fig, ax = plt.subplots(figsize=(9.5, 5.2))
-    for i, clf in enumerate(CLASSIFIERS):
-        vals, errs = [], []
-        for band in order:
-            row = work.loc[(work["band"] == band) & (work["classifier"] == clf)]
-            vals.append(float(row["accuracy_mean"].iloc[0]))
-            errs.append(float(row["accuracy_std"].iloc[0]))
-        offset = (i - (len(CLASSIFIERS) - 1) / 2.0) * width
-        ax.bar(x + offset, vals, width=width, yerr=errs, capsize=3, label=clf)
-
-    ax.axhline(0.5, linestyle="--", linewidth=1.2, alpha=0.6)
-    ax.set_xticks(x)
-    ax.set_xticklabels(order)
-    ax.set_ylim(0.35, 0.9)
-    ax.set_ylabel("LOPO accuracy")
-    ax.set_title("Rest 1 vs Type 1 — single-band PLV comparison")
-    ax.legend(frameon=False)
-    ax.grid(axis="y", alpha=0.2)
-    return _save(fig, out_dir / "final_plv_band_comparison_type1")
+def plot_band_ranking(final_summary, out_dir, *, metric="accuracy", metadata=None):
+    labels = dict(zip(BAND_EXPERIMENTS, ["delta", "theta", "alpha", "beta-low", "beta-high", "gamma"]))
+    return _grouped_accuracy(final_summary, list(BAND_EXPERIMENTS), labels,
+        "Rest 1 vs Type 1 — single-band PLV comparison", out_dir / "final_plv_band_comparison_type1", metric=metric, metadata=metadata)
 
 
-def plot_alpha_subjects(delta_by_unit: pd.DataFrame, out_dir: Path) -> list[Path]:
-    work = delta_by_unit.loc[
-        (delta_by_unit["experiment"] == "plv_alpha_only")
-        & (delta_by_unit["comparison"] == "rest1_vs_type1")
-        & (delta_by_unit["classifier"].isin(CLASSIFIERS))
-    ].copy()
-    if work.empty:
-        raise ValueError("No alpha-only paired unit rows found")
+def plot_phase_robustness(final_summary, out_dir, *, metric="accuracy", metadata=None):
+    return _grouped_accuracy(final_summary, ["poster_baseline", "plv_all_bands", "plv_alpha_only", "iplv_only"], LABELS,
+        "Rest 1 vs Type 1 — phase-connectivity validation", out_dir / "final_phase_connectivity_validation", metric=metric, metadata=metadata)
 
-    # Descriptive subject-level summary.  Mean across classifiers is used only
-    # to keep this figure readable; classifier-specific values remain in CSV.
-    subject = (
-        work.groupby("unit_id", as_index=False)[["accuracy_reference", "accuracy_experiment"]]
-        .mean()
-        .sort_values("unit_id")
-    )
+
+def plot_alpha_subjects(delta_by_unit, out_dir, *, metric="accuracy", metadata=None):
+    _context(delta_by_unit)
+    keys = ["experiment", "comparison", "classifier", "subject_id"]
+    if delta_by_unit.duplicated(keys).any():
+        raise ResultContractError("Paired participant figure has duplicate result keys")
+    needed = ["reference_experiment", "reference_run_id", "eligible_epochs_sha256", "eligible_epoch_manifest_id", f"{metric}_reference", f"{metric}_experiment"]
+    if set(needed) - set(delta_by_unit):
+        raise ResultContractError("Paired participant figure lacks exact reference and eligible-epoch identity")
+    work = delta_by_unit.loc[delta_by_unit.experiment.eq("plv_alpha_only") & delta_by_unit.comparison.eq("rest1_vs_type1")].copy()
+    if work.empty or not work.reference_experiment.eq("poster_baseline").all() or work.reference_run_id.nunique() != 1:
+        raise ResultContractError("Paired participant figure has missing or incompatible reference results")
+    if not metadata or "rest1_vs_type1" not in metadata.get("subject_ids_by_comparison", {}):
+        raise ResultContractError("Paired participant figure requires its independent expected subject roster")
+    expected = pd.DataFrame([{"subject_id": subject, "classifier": classifier}
+                            for subject in metadata["subject_ids_by_comparison"]["rest1_vs_type1"] for classifier in CLASSIFIERS])
+    validate_result_matrix(work, expected, keys=["subject_id", "classifier"])
+    if (work.groupby("subject_id")[["eligible_epochs_sha256", "eligible_epoch_manifest_id"]].nunique() != 1).any().any():
+        raise ResultContractError("Paired participant classifier cells do not share identical eligible epochs")
+    columns = [f"{metric}_reference", f"{metric}_experiment"]
+    if not np.isfinite(work[columns].to_numpy(dtype=float)).all() or not work[columns].apply(lambda c: c.between(0, 1).all()).all():
+        raise ResultContractError("Paired participant figure contains undefined or invalid metrics")
+    subject = work.groupby("subject_id", as_index=False)[columns].mean().sort_values("subject_id")
+    subject["comparison"] = "rest1_vs_type1"
     x = np.arange(len(subject), dtype=float)
-    width = 0.36
     fig, ax = plt.subplots(figsize=(8.2, 4.9))
-    ax.bar(x - width / 2, subject["accuracy_reference"], width=width, label="Poster baseline")
-    ax.bar(x + width / 2, subject["accuracy_experiment"], width=width, label="Alpha PLV only")
+    ax.bar(x - 0.18, subject[columns[0]], width=0.36, label="Poster baseline")
+    ax.bar(x + 0.18, subject[columns[1]], width=0.36, label="Alpha PLV only")
     ax.axhline(0.5, linestyle="--", linewidth=1.2, alpha=0.6)
-    ax.set_xticks(x)
-    ax.set_xticklabels(subject["unit_id"].astype(str))
-    ax.set_ylim(0.3, 1.0)
-    ax.set_ylabel("Accuracy (mean across 3 classifiers)")
+    ax.set_xticks(x, subject.subject_id)
+    ax.set_ylim(0, 1)
+    ax.set_ylabel(f"{METRIC_LABELS[metric]} (mean across 3 classifiers)")
     ax.set_title("Rest 1 vs Type 1 — held-out subject comparison")
     ax.legend(frameon=False)
     ax.grid(axis="y", alpha=0.2)
-    return _save(fig, out_dir / "final_alpha_vs_baseline_by_subject")
+    return _save(fig, out_dir / "final_alpha_vs_baseline_by_subject", source=subject,
+        metric=f"{metric}; mean across the three prespecified classifiers", metadata=metadata,
+        uncertainty="participant values; no uncertainty bars or CI")
 
 
-def _parse_plv_feature(name: str) -> tuple[str, str, str] | None:
-    parts = str(name).split("__")
-    if len(parts) != 4 or parts[0] != "PLV":
-        return None
-    return parts[1], parts[2], parts[3]
-
-
-def plot_alpha_network(freq: pd.DataFrame, out_dir: Path, top_n: int = 12) -> list[Path]:
-    work = freq.loc[
-        (freq["comparison"] == "rest1_vs_type1")
-        & freq["feature"].astype(str).str.startswith("PLV__")
-    ].copy()
-    if work.empty:
-        raise ValueError("No alpha-only PLV SFS frequency rows found")
-
+def plot_alpha_network(freq, out_dir, top_n=12, *, metadata=None):
+    keys = ["comparison", "feature"]
+    if set(keys + ["selection_count"]) - set(freq) or freq.duplicated(keys).any():
+        raise ResultContractError("Alpha network contains missing or duplicate feature-frequency keys")
+    if not isinstance(top_n, int) or isinstance(top_n, bool) or top_n < 1:
+        raise ResultContractError("Network top_n must be a positive integer")
+    work = freq.loc[freq.comparison.eq("rest1_vs_type1")].copy()
+    if work.empty or not np.isfinite(work.selection_count.to_numpy(dtype=float)).all() or (work.selection_count <= 0).any() or (work.selection_count % 1 != 0).any():
+        raise ResultContractError("Alpha network has missing or invalid selection counts")
+    if metadata and (work.selection_count > metadata["n_subjects_by_comparison"]["rest1_vs_type1"]).any():
+        raise ResultContractError("Alpha selection frequency exceeds held-out participant N")
     work = work.sort_values(["selection_count", "feature"], ascending=[False, True]).head(top_n)
     parsed = []
-    for _, row in work.iterrows():
-        p = _parse_plv_feature(row["feature"])
-        if p and p[0] in CHANNEL_POSITIONS and p[1] in CHANNEL_POSITIONS:
-            parsed.append((*p, float(row["selection_count"])))
-    if not parsed:
-        raise ValueError("No drawable PLV connections found")
-
-    max_count = max(x[3] for x in parsed)
+    for row in work.to_dict("records"):
+        parts = row["feature"].split("__")
+        if len(parts) != 4 or parts[0] != "PLV" or parts[3] != "alpha" or tuple(parts[1:3]) not in channel_pairs(DEFAULT_CHANNELS):
+            raise ResultContractError("Alpha network contains an invalid channel pair or band")
+        parsed.append((parts[1], parts[2], row["selection_count"]))
     fig, ax = plt.subplots(figsize=(6.6, 6.6))
     ax.add_patch(Circle((0.0, 0.15), 1.05, fill=False, linewidth=1.5))
     ax.plot([-0.12, 0.0, 0.12], [1.15, 1.28, 1.15], linewidth=1.2)
-
-    for ch, (x, y) in CHANNEL_POSITIONS.items():
+    for channel, (x, y) in CHANNEL_POSITIONS.items():
         ax.scatter([x], [y], s=90, zorder=3)
-        ax.text(x, y + 0.08, ch, ha="center", va="bottom", fontsize=10)
-
-    for ch1, ch2, band, count in parsed:
-        x1, y1 = CHANNEL_POSITIONS[ch1]
-        x2, y2 = CHANNEL_POSITIONS[ch2]
-        lw = 1.0 + 3.0 * (count / max_count)
-        ax.plot([x1, x2], [y1, y2], linewidth=lw, alpha=0.55, zorder=1)
-        mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-        ax.text(mx, my, f"{band}×{int(count)}", fontsize=7, ha="center", va="center")
-
+        ax.text(x, y + 0.08, channel, ha="center", va="bottom", fontsize=10)
+    maximum = max(count for _, _, count in parsed)
+    for first, second, count in parsed:
+        x1, y1 = CHANNEL_POSITIONS[first]
+        x2, y2 = CHANNEL_POSITIONS[second]
+        ax.plot([x1, x2], [y1, y2], linewidth=1 + 3 * count / maximum, alpha=0.55, zorder=1)
+        ax.text((x1+x2)/2, (y1+y2)/2, f"alpha×{int(count)}", fontsize=7, ha="center", va="center")
     ax.set_title("Alpha-PLV SFS network — Rest 1 vs Type 1")
     ax.set_xlim(-1.25, 1.25)
     ax.set_ylim(-0.95, 1.38)
     ax.set_aspect("equal")
     ax.axis("off")
-    return _save(fig, out_dir / "final_alpha_plv_sfs_network")
-
-
-def plot_phase_robustness(final_summary: pd.DataFrame, out_dir: Path) -> list[Path]:
-    work = final_summary.loc[
-        (final_summary["comparison"] == "rest1_vs_type1")
-        & (final_summary["experiment"].isin([
-            "poster_baseline", "plv_all_bands", "plv_alpha_only", "iplv_only"
-        ]))
-    ].copy()
-    experiments = ["poster_baseline", "plv_all_bands", "plv_alpha_only", "iplv_only"]
-    labels = {
-        "poster_baseline": "Poster baseline",
-        "plv_all_bands": "PLV all bands",
-        "plv_alpha_only": "Alpha PLV",
-        "iplv_only": "iPLV",
-    }
-    return _grouped_accuracy(
-        work,
-        experiments,
-        labels,
-        "Rest 1 vs Type 1 — phase-connectivity validation",
-        out_dir / "final_phase_connectivity_validation",
-    )
+    return _save(fig, out_dir / "final_alpha_plv_sfs_network", source=work,
+        metric="training SFS selection count across held-out participant folds", metadata=metadata,
+        uncertainty="descriptive feature-selection frequency; no CI")
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Create the final report figures from frozen formal results")
-    p.add_argument("--results-root", default="results")
-    p.add_argument("--out-dir", default="outputs/figures/final")
-    p.add_argument("--allow-legacy-results", action="store_true", help="Explicitly read historical results with unverified execution provenance")
-    p.add_argument("--network-top-n", type=int, default=12)
-    args = p.parse_args()
-
-    root = Path(args.results_root)
+    parser = argparse.ArgumentParser(description="Rebuild participant results from saved predictions and create strict descriptive figures; no retraining")
+    parser.add_argument("--results-root", default="results")
+    parser.add_argument("--out-dir", default="outputs/figures/final")
+    parser.add_argument("--allow-legacy-results", action="store_true")
+    parser.add_argument("--legacy-manifest", default=None, help="Explicit legacy feature/session mapping; required for historical feature tables")
+    parser.add_argument("--baseline-features", default="data/features/features_all.csv")
+    parser.add_argument("--extension-features", default="data/features/extensions/features_extensions.csv")
+    parser.add_argument("--iplv-features", default="data/features/final_validation/features_iplv.csv")
+    parser.add_argument("--experiments", nargs="+", default=None)
+    parser.add_argument("--partial-report", action="store_true", help="Explicit incomplete scope; always write a new immutable directory")
+    parser.add_argument("--metric", choices=list(METRIC_LABELS), default="accuracy")
+    parser.add_argument("--network-top-n", type=int, default=12)
+    args = parser.parse_args()
+    report = rebuild_historical_results(args.results_root, baseline_features=args.baseline_features,
+        extension_features=args.extension_features, iplv_features=args.iplv_features,
+        legacy_manifest=args.legacy_manifest, allow_legacy=args.allow_legacy_results,
+        experiments=args.experiments, partial=args.partial_report)
+    validate_historical_report(report)
     out = Path(args.out_dir)
-
-    reports = {family: resolve_report_root(root / family, allow_legacy=args.allow_legacy_results)
-               for family in ("extensions", "plv_decomposition", "final_validation")}
-    alpha = root / "final_validation" / "plv_alpha_only"
-    if (reports["final_validation"] / "run_manifest.json").exists():
-        final_manifest = validate_complete_run(reports["final_validation"])
-        if final_manifest["identity"].get("kind") != "report":
-            raise ValueError("Final figures require an aggregated final-validation report")
-        alpha_manifest = validate_complete_run(alpha)
-        expected = final_manifest["identity"]["inventory"].get("plv_alpha_only", {})
-        if (expected.get("run_id") != alpha_manifest["run_id"] or
-                expected.get("manifest_sha256") != sha256_file(alpha / "run_manifest.json")):
-            raise ValueError("Alpha feature frequencies do not belong to the selected report")
-    elif (alpha / "run_manifest.json").exists():
-        raise ValueError("Cannot combine a legacy final report with a managed alpha experiment")
-    elif not args.allow_legacy_results:
-        raise ValueError("Alpha experiment lacks a complete run manifest")
-    sources = {
-        "extension_summary": reports["extensions"] / "extension_summary.csv",
-        "decomposition_summary": reports["plv_decomposition"] / "plv_decomposition_summary.csv",
-        "final_summary": reports["final_validation"] / "final_validation_summary.csv",
-        "final_delta": reports["final_validation"] / "delta_vs_poster_by_unit.csv",
-        "alpha_frequency": alpha / "inter" / "inter_feature_frequency.csv",
-    }
-    extension_summary, decomposition_summary, final_summary, final_delta, alpha_freq = [_read(p) for p in sources.values()]
-
+    available = set(report.metadata["selected_experiments"])
+    options = {"metric": args.metric, "metadata": report.metadata}
     with new_output_directory(out) as stage:
-        made: list[Path] = []
-        made += plot_analysis_story(extension_summary, decomposition_summary, final_summary, stage)
-        made += plot_band_ranking(final_summary, stage)
-        made += plot_alpha_subjects(final_delta, stage)
-        made += plot_phase_robustness(final_summary, stage)
-        made += plot_alpha_network(alpha_freq, stage, top_n=args.network_top_n)
-        (stage / "figure_sources.json").write_text(json.dumps({
-            "inputs": input_inventory(sources),
-            "allow_legacy_results": args.allow_legacy_results,
-        }, indent=2) + "\n", encoding="utf-8")
-        made = [out / p.relative_to(stage) for p in made]
-
-    print("=== FINAL FIGURES ===")
+        made = []
+        if set(STORY_EXPERIMENTS) <= available:
+            made += plot_analysis_story(report.summary, report.summary, report.summary, stage, **options)
+        if set(BAND_EXPERIMENTS) <= available:
+            made += plot_band_ranking(report.summary, stage, **options)
+        if {"poster_baseline", "plv_all_bands", "plv_alpha_only", "iplv_only"} <= available:
+            made += plot_phase_robustness(report.summary, stage, **options)
+        if "plv_alpha_only" in available:
+            made += plot_alpha_subjects(report.paired_deltas, stage, **options)
+            made += plot_alpha_network(report.alpha_frequency, stage, top_n=args.network_top_n, metadata=report.metadata)
+        if not report.metadata["study_matrix_complete"]:
+            made += _grouped_accuracy(report.summary, report.metadata["selected_experiments"], LABELS,
+                "Rest 1 vs Type 1 — PARTIAL historical report", stage / "partial_historical_comparison", **options)
+        (stage / "figure_sources.json").write_text(json.dumps({**report.metadata, "figure_metric": args.metric,
+            "figures": [p.stem for p in made if p.suffix == ".png"],
+            "performance_source": "validated epoch predictions → participant results → equal-participant summary",
+            "network_source": "training selections from folds matched to validated prediction coverage; recorded frequencies checked against fold selections"},
+            indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+        write_report_contents(report, stage)
+        read_historical_report(stage, verify_sources=False)
+        made = [out / path.relative_to(stage) for path in made]
+    print(f"report_scope={report.metadata['scope']}")
     for path in made:
         print(path)
-    print(f"count={len(made)} files ({len(made)//2} figures, PNG+SVG)")
+    print(f"count={len(made)} files ({len(made)//2} figures, PNG+SVG); metric={args.metric}; error bars=participant SD, no LOPO CI")
     return 0
 
 

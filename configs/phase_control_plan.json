@@ -1,0 +1,144 @@
+{
+  "schema_version": "eeg-phase-control-plan-1",
+  "study_id": "eeg-ma-B-phase-controls-v1",
+  "version": "1",
+  "status": "draft",
+  "purpose": "prospective_control_sensitivity_not_neural_source_identification",
+  "analysis_id": "prospective_control_grouped_lopo",
+  "data": {
+    "availability": "not_arranged",
+    "cohort_id": null,
+    "collection_started_at": null,
+    "outcomes_accessed": false,
+    "excluded_subject_ids": ["irene", "jh", "lin", "pftest", "yen"],
+    "prior_exposed_subject_ids": [],
+    "use": "new_control_cohort_only",
+    "original_five_stop_rule": "no_new_features_models_or_threshold_search"
+  },
+  "acquisition": {
+    "sampling_rate_hz": 500,
+    "epoch_seconds": 5.0,
+    "channels": ["FP1", "FP2", "F7", "F3", "Fz", "F4", "F8"],
+    "device": null,
+    "units": null,
+    "reference": null,
+    "ground": null,
+    "eog_channels": [],
+    "artifact_annotations_available": null,
+    "effective_rank": null,
+    "verified": false
+  },
+  "procedure": {
+    "protocol_id": "eeg-ma-B-control-v1",
+    "comparison": "copy_control_vs_type1",
+    "blocks": 6,
+    "epochs_per_block": 10,
+    "calculation_seconds": 5.0,
+    "response_seconds": null,
+    "washout_seconds": 30,
+    "sequences": [
+      ["CopyControl", "Type1", "CopyControl", "Type1", "CopyControl", "Type1"],
+      ["Type1", "CopyControl", "Type1", "CopyControl", "Type1", "CopyControl"]
+    ],
+    "allocation": "balanced_random_slots_before_acquisition",
+    "allocation_seed": 20261119,
+    "display": "identical_layout_luminance_and_5s_duration",
+    "response": "same_numeric_interface_and_response_window_after_each_epoch",
+    "control_task": "copy_displayed_number_without_arithmetic",
+    "task": "three_digit_subtraction_two_borrows",
+    "scored_window": "calculation_only_excludes_response",
+    "session_selection": "first_QA_valid_B_session_no_accuracy_selection",
+    "maximum_B_sessions": 1,
+    "transport": "B_discrimination_separate_from_A_fixed_model_primary",
+    "same_participant_AB": "disabled",
+    "AB_order_if_enabled": "A_before_B",
+    "independent_N_increment_for_repeat_sessions": 0
+  },
+  "preprocessing": {
+    "continuous_filter_hz": [2.0, 50.0],
+    "filter_order": 4,
+    "phase_band_hz": [8.0, 13.0],
+    "phase_filter_order": 4,
+    "phase_method": "continuous_bandpass_then_hilbert_before_epoching",
+    "target_fit_ICA_ASR_alignment": "disabled",
+    "channel_interpolation": "disabled",
+    "structural_QA": "whole_recording_reject",
+    "task_eligibility": "correct_trials_only_both_conditions",
+    "min_epochs_per_class": 20,
+    "max_epochs_per_class": 30,
+    "undefined_ciplv_policy": "exclude_epoch_from_all_representations",
+    "ciplv_min_denominator": 0.000001
+  },
+  "matrix": {
+    "representations": ["plv", "iplv", "ciplv"],
+    "pair_count": 21,
+    "classifiers": ["LDA"],
+    "reference_sensitivity": {
+      "decision": "pending_feasibility",
+      "method": "seven_frontal_average",
+      "reason": null
+    },
+    "artifact_sensitivity": {
+      "decision": "pending_feasibility",
+      "method": "blinded_annotation_reject_any_overlap",
+      "annotation_ontology": null,
+      "reason": null
+    },
+    "maximum_cells": 9,
+    "crossed_reference_artifact_arm": "disabled",
+    "paired_comparison_policy": "within_arm_exact_epochs_cross_arm_delta_requires_separate_exact_pair_validation",
+    "shared_within_arm": ["samples", "channels", "pairs", "band", "QC", "outer_splits", "inner_splits", "selection_rule", "classifier"]
+  },
+  "selection": {
+    "outer": "leave_one_participant_out_all_sessions_together",
+    "inner": "leave_one_training_participant_out",
+    "selector": "LDA_forward_selection_training_only",
+    "inner_metric": "participant_macro_balanced_accuracy",
+    "candidate_features": 21,
+    "max_features": 21,
+    "min_improvement": 0.0,
+    "tie_break": "ordered_channel_pairs_first",
+    "stopping": "retain_first_nonempty_best_subset_then_require_strict_improvement",
+    "scaler": "training_only_StandardScaler",
+    "classifier": "LDA_svd_no_hyperparameter_search",
+    "lda_tol": 0.0001,
+    "lda_priors": "training_class_frequencies",
+    "shared_splits": true,
+    "target_fit": false
+  },
+  "recruitment": {
+    "target_unique_participants": null,
+    "cap_unique_participants": null,
+    "resource_and_sample_size_rationale": null,
+    "stop_rule": "first_of_prespecified_target_or_cap_without_score_based_extension",
+    "target_definition": "QA_valid_B_participants_with_minimum_correct_epochs_before_common_phase_QC",
+    "early_termination_policy": "retain_all_and_report_administrative_shortfall_without_score_based_extension"
+  },
+  "reporting": {
+    "unit": "participant",
+    "weighting": "equal_participant_weights",
+    "metrics": ["balanced_accuracy", "accuracy", "recall_control", "recall_task", "confusion_counts"],
+    "class_mapping": {"0": "CopyControl", "1": "Type1"},
+    "uncertainty": "descriptive_SD_only_no_IID_CV_confidence_interval",
+    "complete_matrix_required": true,
+    "report_all_signs": true,
+    "missing_class": "unevaluable_retain_recruitment_and_QC_denominators",
+    "AB_pairing": "exact_same_people_no_inner_join_no_double_N",
+    "interpretation": "sensitivity_does_not_identify_artifact_or_quantify_zero_lag_source",
+    "stop_after_matrix": true,
+    "new_hypothesis": "new_study_and_new_unexposed_holdout",
+    "deferred": ["source_space", "high_density", "wPLI", "new_feature_families", "calibration_EA", "streaming"]
+  },
+  "approval": {
+    "registered_at": null,
+    "registration_reference": null,
+    "approved_at": null,
+    "data_use_terms": null,
+    "resources_confirmed": false
+  },
+  "evidence": {
+    "acquisition_feasibility": {"path": null, "sha256": null},
+    "data_use_approval": {"path": null, "sha256": null},
+    "participant_registry": {"path": null, "sha256": null}
+  }
+}

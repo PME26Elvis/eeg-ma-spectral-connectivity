@@ -278,7 +278,19 @@ CI 分成 **Compatibility CI** 與 **Reference numerical CI**：前者保留 Pyt
 
 固定模型使用 `fixed_model_external` analysis ID，與重新訓練的 `grouped_lopo_learning_procedure` 分開。Schema 2.0 的 CV splits 依 stable epoch ID 排序，subject 的全部 sessions 同側；inner SFS／grid 分數明示為 selection diagnostics。Synthetic tests 覆蓋模型 round-trip、no-target-fit、標籤與特徵擾動、split 重排、重新 hash 的錯誤 artifacts、完整 CLI 及 participant-macro scoring，沒有 accuracy 驗收門檻。
 
-完整操作見 [固定模型 external workflow](docs/fixed_external.md)。[#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) 接續整合 participant-level uncertainty 與正式研究報告；目前 score 產物明示為 point estimates。
+完整操作見 [固定模型 external workflow](docs/fixed_external.md)。Score 產物保留逐受試者點估計；後續由獨立、可驗證的報告層計算 uncertainty 與產生研究報告。
+
+### 受試者層級結果與圖表來源
+
+[#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) 已將現有逐 epoch predictions 接入統一結果契約。完整歷史圖表範圍的 **66 個分析組合**可重建為每人 accuracy／balanced accuracy、class recalls、confusion counts 與等權 participant macro；既有 baseline、α-PLV、iPLV 數值保持一致。正式圖表先驗證完整矩陣、受試者／epoch 配對與來源 hash，並標示 **N = 5、受試者間 SD、歷史探索性質**。
+
+固定模型的新 cohort 報告另外保留完整招募／QA flow，依鎖定協定進行 **10,000 次受試者 bootstrap 與 95% CI**。此不確定性以已固定模型為條件；缺 class 不補 0.5，同人多 sessions 不增加 N，pooled epoch 指標另列。這項報告能力沒有新增真實外部研究結果。結果契約、重建與來源驗證見 [受試者報告說明](docs/participant_reporting.md)。
+
+### 有限的相位與流程控制計畫
+
+[#13](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/13) 已建立獨立 B 控制計畫及相位數值／共用資料契約：固定 **α 8–13 Hz、同 21 pairs、同 epochs／QC／nested participant splits** 比較 PLV、iPLV、ciPLV。Reference 與 artifact sensitivity 須先完成可行性決策，核心三組、最多九組，不在看結果後擴增頻帶或 classifiers。ciPLV 未定義或近退化時會明確記錄，並對三種表示共用排除規則。
+
+B 使用多 blocks、平衡 condition order，並匹配顯示與數字回應流程；其 CopyControl 與 Type1 的辨識結果須與 A 的固定模型評估分開解讀。同人的 A/B sessions 不增加獨立人數，iPLV／ciPLV 的變化也不直接證明 artifact 或神經連結來源。計畫目前仍是 **draft／blocked**；實際設備、資料使用條件、收案預算與核准尚待確認。詳見 [控制設計與啟動條件](docs/phase_controls.md)。
 
 ## 相關資料與參考文獻
 
