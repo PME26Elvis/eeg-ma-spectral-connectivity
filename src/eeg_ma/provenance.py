@@ -581,6 +581,15 @@ def validate_evaluation_outputs(root: Path, identity: dict) -> None:
                 raise ProvenanceError(f"Invalid RandomForest evidence: {exc}") from exc
         elif any(path.exists() for path in evidence_files):
             raise ProvenanceError("Unexpected RandomForest evidence for an undeclared classifier")
+        lightgbm_evidence = [folder / "lightgbm_inputs.csv", folder / "lightgbm_audit.json"]
+        if "LightGBM" in classifiers:
+            try:
+                from .lightgbm_audit import validate_lightgbm_evidence
+                validate_lightgbm_evidence(folder, scope, identity, folds, preds)
+            except (ValueError, TypeError, KeyError, IndexError, AttributeError, OverflowError) as exc:
+                raise ProvenanceError(f"Invalid LightGBM evidence: {exc}") from exc
+        elif any(path.exists() for path in lightgbm_evidence):
+            raise ProvenanceError("Unexpected LightGBM evidence for an undeclared classifier")
     if _read_json(root / "config_snapshot.json") != identity["config"]:
         raise ProvenanceError("Config snapshot disagrees with run identity")
     if _read_json(root / "split_manifest.json") != identity["splits"]:

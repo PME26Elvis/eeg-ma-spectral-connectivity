@@ -50,6 +50,14 @@ Validator 核對 splits、candidate 順序與 seed，重算 inner scores／候�
 
 Audit 明確標記 `verification_scope=source_bound_outer_model_prediction_replay_and_inner_selection_record_consistency_not_inner_refit`。它驗證 final model 的來源重播與 inner 記錄一致性，沒有宣稱重新訓練所有 inner forests 或重搜 final tree 的最佳 splits。Standalone model JSON 本身不含原始 X，僅能驗證結構與內部一致性。演算法與證據的完整邊界見 [Random Forest 指南](random_forest.md)。
 
+### LightGBM 的逐輪來源重播
+
+明確加入 `LightGBM` 的 roster 使用 `eeg-classifier-policy-2`，仍由 `evaluation-3` identity 綁定；未選用它的三／四模型 policy 保持原有 schema 與欄位。每個啟用 scope 必須包含 `lightgbm_inputs.csv` 及 `lightgbm_audit.json`，保存完整來源、候選順序、inner membership／預測／分數、derived seeds、selected features 與 final boosting model。
+
+Validator 從來源重建 training-only bins 與 EFB layout，沿最終模型的 boosting prefix 重算梯度／Hessian、抽樣／特徵 RNG、逐節點 counts／G／H、Newton leaf outputs、split gains 與 training loss，並核對 outer raw scores／機率／預測。Inner records 的 scores、候選平均與選擇規則另以 exact fraction 核對。Integrated CV 禁止 early stopping，因此沒有把外層 test 當 validation set 的隱藏路徑。
+
+來源重播不等於重新訓練所有 inner models，也不重搜 final tree 的每個 greedy optimum；完整驗證範圍寫入 audit。純模型 JSON 缺少原始 X／y，只能檢查自身結構與內部一致性。詳見 [LightGBM 指南](lightgbm.md)。
+
 ## 3. Matrix 的預檢與 partial execution
 
 scripts 06／09／10／12 共用 `prepare_matrix` 與 `MatrixRun`。執行前預檢整個既存 inventory，包含未列在本次 `--experiments` 的實驗。任何舊項目失配時，尚未開始第一個新 experiment，也不會先覆寫 snapshot。
@@ -95,7 +103,7 @@ Matrix writers 以 OS file lock 排除同時更新同一 root；process 結束�
 
 六支 runner 均提供 `--resume` 與 `--legacy-manifest`。新版 matrix 的總表在 `CURRENT.json` 指向的完整 report directory，CLI 會印出實際路徑。請勿再假設 matrix root 下同名 CSV 就是最新報告。
 
-這六支 runner 與 `run_all.py` 亦接受 `--classifiers`，effective roster 會進入 config snapshot 與 identity。Matrix 的 reference 必須與當次 roster 相同；四模型 run 不能以歷史三模型表的交集假裝具有完整 reference coverage。新 RF 研究須使用自己相符的 managed references。
+這六支 runner 與 `run_all.py` 亦接受 `--classifiers`，effective roster 會進入 config snapshot 與 identity。Matrix 的 reference 必須與當次 roster 相同；新增 RF／LightGBM 的 run 不能以歷史三模型表的交集假裝具有完整 reference coverage。新分析須使用自己相符的 managed references。
 
 Canonical `results/`、`data/features/`、`data/raw/` 及其祖先均不能作為新輸出；透過 symlink 指回它們也會拒絕。Explicit `--out-root results/final_validation` 不會解除保護。變更方法／設定後，請使用具名新 root，例如：
 
@@ -127,5 +135,7 @@ python scripts/14_inventory_legacy.py \
 測試包含真實的小型 SFS／LDA／SVM／KFDA 執行，以及六支 CLI 的 orchestration、partial aggregation、immutable resume、缺檔／錯 schema／錯 metadata、canonical path 和 interruption。這些測試不重跑正式五人研究矩陣，也不宣稱完成 private raw-to-result reproduction。
 
 RF 另有獨立有理數 split oracle、bootstrap／OOB 重算、模型 JSON 攻擊與 source-bound audit 測試，並以真實 `03`／`04` subprocess 驗證四模型及 immutable resume；reference artifact 保存 synthetic inputs、實際模型與命令紀錄。
+
+LightGBM 加入獨立 Newton split／leaf oracle、直接 histogram／GOSS／EFB 對照、來源梯度重播與模型／artifact 攻擊測試；五模型 subprocess smoke 同時保留真實分箱、boosting、manual search 與環境探測。
 
 本機制是防止意外混用、無聲覆寫與不完整產物被當完成的工程契約；manifest 是可稽核的來源記錄，不是由外部信任方簽章的防篡改證明。

@@ -142,6 +142,8 @@ Reference job 也以 clean checkout、實際 code identity／UTC clock／referen
 
 同一 job 另執行 [手刻 Random Forest smoke](../tests/run_random_forest_smoke.py)：由 3 位 synthetic people、6 sessions、48 epochs 的 raw inputs 實際產生 QA／features，再透過 `03`／`04` subprocess 完成四分類器 CV、來源／模型／OOB replay、resume／拒絕覆寫與通用圖表。另保存 300 × 126 synthetic workload 的 32-tree threaded forest 與 JSON 往返證據。所有 estimator 與驗證皆實際執行，不替換 clock、code identity 或環境探測；完整證據位於 reference artifact 的 `random-forest/`。原 numerical golden fixture 仍是既有三模型，分別檢驗預設行為不變與新增 RF 能力。
 
+[LightGBM smoke](../tests/run_lightgbm_smoke.py) 另實際執行五分類器 `03`／`04`：每個 scope 240 筆 predictions，intra 30／inter 15 個 classifier-fold rows，並驗證 RF 與 LightGBM 的來源證據、JSON 往返、完整 resume／拒絕覆寫及圖表。獨立 workload 包含 300 × 126 dense data 的 16-round bagging／feature sampling，以及 240 × 12 sparse data 的 12-round GOSS／EFB，核對 serial／threaded 與 bundled／unbundled 預測。完整 inputs、模型、命令與環境證據位於 artifact 的 `lightgbm/`。這是有限 synthetic 工程驗證，不是實際 EEG 準確率比較或速度保證。
+
 手動 dependency comparison 需要 explicit candidate commit、run identity 與變更理由；分析程式與 synthetic input 固定，只從指定候選版本取得 environment 定義。輸入由資料欄位處理，不拼入可執行 shell。Reference 與 candidate 分別使用隔離環境、完整 receipt 與不可覆寫輸出，保存各自 lock／environment identity 及比較結果。
 
 ### 操作受控比較

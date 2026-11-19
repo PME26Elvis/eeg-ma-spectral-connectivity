@@ -25,15 +25,16 @@ def add_identity_arguments(parser, *, resume=True):
 
 
 def add_classifier_arguments(parser):
-    parser.add_argument("--classifiers", nargs="+", choices=("LDA", "RBF-SVM", "KFDA", "RandomForest"),
-        help="Explicit classifier roster; RandomForest uses the NumPy/stdlib implementation. "
+    from .classifier_config import SUPPORTED_CLASSIFIERS
+    parser.add_argument("--classifiers", nargs="+", choices=SUPPORTED_CLASSIFIERS,
+        help="Explicit classifier roster; RandomForest and LightGBM use handwritten NumPy/stdlib implementations. "
              "When omitted, use the config roster (historical configs retain their three classifiers).")
 
 
 def apply_classifier_arguments(cfg, classifiers=None):
     """Resolve an intentional CLI override before reading features or fitting.
 
-    Excluding RandomForest explicitly also excludes its configuration block;
+    Excluding a handwritten learner explicitly also excludes its configuration block;
     the resulting complete configuration is retained in the run identity.
     """
     from .classifier_config import classifier_policy
@@ -42,6 +43,8 @@ def apply_classifier_arguments(cfg, classifiers=None):
         effective["classifiers"] = list(classifiers)
         if "RandomForest" not in classifiers:
             effective.pop("random_forest", None)
+        if "LightGBM" not in classifiers:
+            effective.pop("lightgbm", None)
     classifier_policy(effective)
     return effective
 
