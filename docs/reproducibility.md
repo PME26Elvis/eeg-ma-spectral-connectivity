@@ -140,6 +140,8 @@ Compatibility 與 reference numerical jobs 名稱、環境來源與證據分開�
 
 Reference job 也以 clean checkout、實際 code identity／UTC clock／reference verifier 執行 [fixed-external subprocess smoke](fixed_external.md)。它保存模型、protocol lock、label-free predictions、驗證輸出，並確認未完成 enrollment 時 scoring 在 labels access 前阻擋。完整成功 score 則由使用明示 synthetic chronology 的 lifecycle tests 驗證。這兩層證據保留於同一 reference artifact，沒有以虛構即時收案來滿足正式解盲 gate。
 
+同一 job 另執行 [手刻 Random Forest smoke](../tests/run_random_forest_smoke.py)：由 3 位 synthetic people、6 sessions、48 epochs 的 raw inputs 實際產生 QA／features，再透過 `03`／`04` subprocess 完成四分類器 CV、來源／模型／OOB replay、resume／拒絕覆寫與通用圖表。另保存 300 × 126 synthetic workload 的 32-tree threaded forest 與 JSON 往返證據。所有 estimator 與驗證皆實際執行，不替換 clock、code identity 或環境探測；完整證據位於 reference artifact 的 `random-forest/`。原 numerical golden fixture 仍是既有三模型，分別檢驗預設行為不變與新增 RF 能力。
+
 手動 dependency comparison 需要 explicit candidate commit、run identity 與變更理由；分析程式與 synthetic input 固定，只從指定候選版本取得 environment 定義。輸入由資料欄位處理，不拼入可執行 shell。Reference 與 candidate 分別使用隔離環境、完整 receipt 與不可覆寫輸出，保存各自 lock／environment identity 及比較結果。
 
 ### 操作受控比較

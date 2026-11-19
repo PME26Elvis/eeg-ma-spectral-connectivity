@@ -6,6 +6,8 @@ import subprocess
 import sys
 
 from eeg_ma.artifacts import new_output_directory
+from eeg_ma.config import load_config
+from eeg_ma.experiment_runs import add_classifier_arguments, apply_classifier_arguments
 
 
 def run(script: str, *args: str) -> None:
@@ -19,7 +21,10 @@ def main() -> int:
     p.add_argument("--raw-root", default="data/raw")
     p.add_argument("--config", default="configs/lab_replication.json")
     p.add_argument("--out-root", default="outputs/pipeline", help="New destination; existing output is never replaced")
+    add_classifier_arguments(p)
     args = p.parse_args()
+    apply_classifier_arguments(load_config(args.config), args.classifiers)
+    classifier_args = ("--classifiers", *args.classifiers) if args.classifiers is not None else ()
 
     with new_output_directory(args.out_root) as stage:
         feature_dir = stage / "features" / "baseline"
@@ -31,7 +36,7 @@ def main() -> int:
         run("05_behavioral.py", *raw_args, "--out", str(baseline / "behavioral_summary.csv"))
         for scope, script in (("intra", "03_intra_subject.py"), ("inter", "04_inter_subject.py")):
             run(script, "--config", args.config, "--features", str(feature_csv),
-                "--out-dir", str(baseline / scope))
+                "--out-dir", str(baseline / scope), *classifier_args)
     print(f"Completed pipeline: {Path(args.out_root).resolve()}")
     return 0
 

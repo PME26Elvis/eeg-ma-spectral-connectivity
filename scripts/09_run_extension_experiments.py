@@ -12,7 +12,7 @@ import pandas as pd
 from eeg_ma.config import load_config
 from eeg_ma.evaluation import run_inter_subject, run_intra_subject
 from eeg_ma.extensions import merge_baseline_and_extensions
-from eeg_ma.experiment_runs import add_identity_arguments, load_features, prepare_matrix, source_inputs
+from eeg_ma.experiment_runs import add_identity_arguments, load_features, prepare_matrix, source_inputs, add_classifier_arguments, apply_classifier_arguments
 from eeg_ma.provenance import read_csv_literal
 
 
@@ -132,11 +132,12 @@ def main() -> int:
     p.add_argument("--out-root", default="outputs/results/extensions")
     p.add_argument("--include-combined", action="store_true")
     add_identity_arguments(p)
+    add_classifier_arguments(p)
     args = p.parse_args()
+    cfg = apply_classifier_arguments(load_config(args.config), args.classifiers)
     baseline = load_features(args.baseline_features, args.legacy_manifest)
     extensions = load_features(args.extension_features, args.legacy_manifest)
     merged = merge_baseline_and_extensions(baseline, extensions)
-    cfg = load_config(args.config)
     spec = json.loads(Path(args.extension_config).read_text(encoding="utf-8"))
     experiments = spec.get("experiments", [])
     required = [x["name"] for x in experiments if x.get("enabled_by_default", False)]

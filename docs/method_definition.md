@@ -204,3 +204,11 @@ KFDA 的標準 formulation 使用 regularization parameter；為對應海報的 
 4. 來源未明定之處才採標準且可設定的實作，並在本文件明示
 
 因此不會把來源沒有說明的 ICA、notch、COH subsegment 秒數、KFDA regularization mapping 等偷偷寫成「實驗室規範」。
+
+## 12. 可選的手刻 Random Forest
+
+一般 CV runners 可透過明確 `classifiers` 名單加入 `RandomForest`；原研究三模型與未指定新欄位的預設沿用上文。RF 核心只使用 Python 標準函式庫及 NumPy，自行實作 weighted-Gini CART、bootstrap、node-level feature subsampling 與 leaf probability averaging，沒有呼叫現成 tree／forest。它採平均機率的森林變體，並明列 threshold、zero-gain split、tie、sample／class weights、seed、OOB 及 importance 的精確規則。
+
+整合式 RF 使用當次 outer-training LDA SFS 的共同 selected subset，不另 fit scaler；手刻 inner search 依既有 stratified／participant splits 選參數，再於完整 outer-training refit。Outer test 不進入選擇或訓練。Inner mean accuracy 仍為選參數診斷，OOB 是 training-epoch 診斷，兩者都不能替代 held-out participant 評估。
+
+完整演算法、參數、safe JSON、來源重播與獨立數學驗證見 [Random Forest 方法文件](random_forest.md)。這項新增選項沒有更改 A 的 fixed-LDA protocol、B 的 LDA control matrix，也沒有新增歷史五人研究結果。

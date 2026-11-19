@@ -1,4 +1,4 @@
-"""Shared lifecycle for the historical evaluation command-line programs."""
+"""Shared lifecycle and explicit classifier choices for evaluation commands."""
 from __future__ import annotations
 
 import copy
@@ -22,6 +22,28 @@ def add_identity_arguments(parser, *, resume=True):
     if resume:
         parser.add_argument("--resume", action="store_true",
             help="Reuse only a complete run with identical input/config/code/schema/split/environment identity.")
+
+
+def add_classifier_arguments(parser):
+    parser.add_argument("--classifiers", nargs="+", choices=("LDA", "RBF-SVM", "KFDA", "RandomForest"),
+        help="Explicit classifier roster; RandomForest uses the NumPy/stdlib implementation. "
+             "When omitted, use the config roster (historical configs retain their three classifiers).")
+
+
+def apply_classifier_arguments(cfg, classifiers=None):
+    """Resolve an intentional CLI override before reading features or fitting.
+
+    Excluding RandomForest explicitly also excludes its configuration block;
+    the resulting complete configuration is retained in the run identity.
+    """
+    from .classifier_config import classifier_policy
+    effective = copy.deepcopy(cfg)
+    if classifiers is not None:
+        effective["classifiers"] = list(classifiers)
+        if "RandomForest" not in classifiers:
+            effective.pop("random_forest", None)
+    classifier_policy(effective)
+    return effective
 
 
 def source_inputs(paths, legacy_manifest=None):

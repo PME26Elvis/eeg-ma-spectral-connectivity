@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from fractions import Fraction
 import hashlib
 import csv
 from io import StringIO
@@ -22,6 +23,8 @@ from typing import Callable, Mapping
 
 import numpy as np
 import pandas as pd
+
+from .classifier_config import classifier_policy, resolve_classifiers
 
 MANIFEST_VERSION = "eeg-run-1"
 MANIFEST_NAME = "run_manifest.json"
@@ -148,6 +151,7 @@ def input_inventory(paths: Mapping[str, str | Path]) -> dict:
 def build_run_identity(features: pd.DataFrame, cfg: dict, scopes, *, input_paths=None,
                        references=None, experiment=None, context_config=None,
                        code=None, environment=None, project_root=None, scope_layout="nested") -> dict:
+    policy = classifier_policy(cfg)
     from .schema import validate_feature_table
     validate_feature_table(features)
     from .extract import feature_columns
@@ -166,7 +170,8 @@ def build_run_identity(features: pd.DataFrame, cfg: dict, scopes, *, input_paths
     # Include values even when a caller builds a table in memory rather than reading CSV.
     table_hash = hashlib.sha256(features.to_csv(index=False, lineterminator="\n").encode("utf-8")).hexdigest()
     splits = {scope: make_evaluation_splits(features, cfg, scope) for scope in scopes}
-    return _jsonable({"identity_version": "evaluation-2", "kind": "evaluation",
+    return _jsonable({"identity_version": "evaluation-3" if "classifiers" in cfg else "evaluation-2", "kind": "evaluation",
+        **({"classifier_policy": policy} if "classifiers" in cfg else {}),
         "code": code if code is not None else code_identity(project_root),
         "environment": environment if environment is not None else environment_identity(project_root),
         "config": cfg, "context_config": context_config or {}, "experiment": experiment or {},
@@ -175,7 +180,7 @@ def build_run_identity(features: pd.DataFrame, cfg: dict, scopes, *, input_paths
                     "n_rows": len(features), "table_sha256": table_hash, "metadata": records,
                     "metadata_sha256": fingerprint(records)},
         "feature_order": columns, "scopes": list(scopes), "scope_layout": scope_layout, "splits": splits,
-        "evaluation_contracts": {scope: evaluation_contract(scope) for scope in scopes},
+        "evaluation_contracts": {scope: evaluation_contract(scope, cfg=cfg) for scope in scopes},
         "split_sha256": fingerprint(splits)})
 
 
@@ -189,7 +194,7 @@ STRING_COLUMNS = {
 }
 
 
-def read_csv_literal(path_or_buffer, *, encoding="utf-8-sig") -> pd.DataFrame:
+def read_csv_literal(path_or_buffer, *, encoding="utf-8-sig", float_precision=None) -> pd.DataFrame:
     if hasattr(path_or_buffer, "getvalue"):
         data = path_or_buffer.getvalue()
     else:
@@ -198,7 +203,7 @@ def read_csv_literal(path_or_buffer, *, encoding="utf-8-sig") -> pd.DataFrame:
     if not header or len(set(header)) != len(header):
         raise ProvenanceError("CSV header is missing or contains duplicate columns")
     strings = set(header) & STRING_COLUMNS
-    return pd.read_csv(StringIO(data), keep_default_na=False,
+    return pd.read_csv(StringIO(data), keep_default_na=False, float_precision=float_precision,
         dtype={c: str for c in strings}, na_values={c: [""] for c in header if c not in strings})
 
 
@@ -230,17 +235,254 @@ def _same_table(actual: pd.DataFrame, expected: pd.DataFrame, keys, label: str) 
             raise ProvenanceError(f"Incorrect keys/values for {label}.{column}")
 
 
+def _rf_equal(actual, expected, label):
+    if canonical_json(actual) != canonical_json(expected):
+        raise ProvenanceError(f"RandomForest {label} differs from its declared contract")
+
+
+def _rf_numeric_array(value, label):
+    """Check JSON scalar types before coercion can erase bool/string evidence."""
+    def numeric_types(item):
+        if isinstance(item, np.ndarray):
+            return item.dtype.kind in "iuf"
+        if isinstance(item, (list, tuple)):
+            return all(numeric_types(element) for element in item)
+        return (not isinstance(item, (bool, np.bool_))
+                and isinstance(item, (int, float, np.integer, np.floating)))
+    if not numeric_types(value):
+        raise ProvenanceError(f"RandomForest {label} must contain numeric values, not booleans or strings")
+    result = np.asarray(value, dtype=float)
+    if not np.isfinite(result).all():
+        raise ProvenanceError(f"RandomForest {label} must contain finite values")
+    return result
+
+
+def _rf_numeric(actual, expected, label):
+    a, b = _rf_numeric_array(actual, label), _rf_numeric_array(expected, label)
+    if a.shape != b.shape or not np.allclose(a, b, rtol=2e-12, atol=2e-14):
+        raise ProvenanceError(f"RandomForest {label} does not reproduce")
+
+
+def _rf_probabilities(raw, classes, predictions, n_rows, label):
+    values = _rf_numeric_array(raw, label + " probabilities")
+    if (values.shape != (n_rows, len(classes))
+            or np.any(values < 0) or np.any(values > 1)
+            or not np.allclose(values.sum(axis=1), 1, rtol=0, atol=2e-12)):
+        raise ProvenanceError(f"RandomForest {label} contains invalid probabilities")
+    _rf_equal(predictions, np.asarray(classes)[np.argmax(values, axis=1)].tolist(), label + " class decisions")
+    return values
+
+
+def _verify_forest_training_counts(model, X, y):
+    """Route captured in-bag observations through every stored node, without fit.
+
+    This independently binds class masses and split partitions to the source
+    tensor. It does not claim to rerun the greedy split optimization.
+    """
+    classes = model.classes_
+    encoded = np.searchsorted(classes, y)
+    params = model.get_params(deep=False)
+    weights = np.ones(len(y))
+    if params["class_weight"] == "balanced":
+        counts = np.bincount(encoded, minlength=len(classes))
+        weights = len(y) / (len(classes) * counts[encoded])
+    elif isinstance(params["class_weight"], dict):
+        weights = np.array([params["class_weight"][label] for label in y])
+    snapshot = model.to_dict()
+    _rf_equal(snapshot["training_eligible_indices"], list(range(len(y))), "positive training-weight coverage")
+    if model.n_samples_fit_ != len(y):
+        raise ProvenanceError("RandomForest model training count differs from outer training membership")
+    for tree, draws in zip(model.estimators_, model.bootstrap_indices_):
+        stack = [(0, draws)]
+        while stack:
+            node, rows = stack.pop()
+            counts = np.bincount(encoded[rows], weights=weights[rows], minlength=len(classes))
+            if tree.n_node_samples_[node] != len(rows):
+                raise ProvenanceError("RandomForest tree node count differs from source routing")
+            _rf_numeric(tree.class_counts_[node], counts, "source-bound tree class masses")
+            _rf_numeric(tree.weighted_n_node_samples_[node], counts.sum(), "source-bound tree mass")
+            feature = int(tree.feature_[node])
+            if feature >= 0:
+                left = X[rows, feature] <= tree.threshold_[node]
+                stack.extend(((int(tree.children_left_[node]), rows[left]),
+                              (int(tree.children_right_[node]), rows[~left])))
+
+
+def _verify_forest_oob(model, X, y, recorded, policy):
+    if not model.get_params(deep=False)["oob_score"]:
+        if recorded is not None:
+            raise ProvenanceError("RandomForest OOB diagnostics must be absent when disabled")
+        return
+    if not isinstance(recorded, dict) or set(recorded) != {"scope", "counts", "eligible_mask", "probabilities", "coverage", "accuracy"}:
+        raise ProvenanceError("RandomForest OOB evidence schema differs")
+    counts = np.zeros(len(y), dtype=np.int64)
+    sums = np.zeros((len(y), len(model.classes_)))
+    for tree, draws in zip(model.estimators_, model.bootstrap_indices_):
+        absent = np.ones(len(y), dtype=bool)
+        absent[draws] = False
+        rows = np.flatnonzero(absent)
+        if len(rows):
+            sums[rows] += tree.predict_proba(X[rows])
+            counts[rows] += 1
+    covered = counts > 0
+    probabilities = np.full_like(sums, np.nan)
+    probabilities[covered] = sums[covered] / counts[covered, None]
+    score = float(np.mean(model.classes_[np.argmax(probabilities[covered], axis=1)] == y[covered])) if covered.any() else None
+    expected = {"scope": policy["oob_scope"], "counts": counts.tolist(),
+        "eligible_mask": [True] * len(y),
+        "probabilities": [[float(v) if np.isfinite(v) else None for v in row] for row in probabilities],
+        "coverage": float(np.mean(covered)), "accuracy": score}
+    # Identities/nulls are exact; finite probabilities permit only roundoff.
+    for field in ("scope", "counts", "eligible_mask"):
+        _rf_equal(recorded[field], expected[field], "OOB " + field)
+    raw = recorded["probabilities"]
+    if (not isinstance(raw, list) or len(raw) != len(y)
+            or any(not isinstance(row, list) or len(row) != len(model.classes_) for row in raw)):
+        raise ProvenanceError("RandomForest OOB probability shape differs")
+    for index in np.flatnonzero(~covered):
+        if raw[index] != [None] * len(model.classes_):
+            raise ProvenanceError("Uncovered RandomForest OOB rows must remain null")
+    if covered.any():
+        # Preserve the original scalars until their types have been checked.
+        _rf_numeric([raw[int(index)] for index in np.flatnonzero(covered)], probabilities[covered], "OOB source replay")
+    _rf_numeric(model.oob_decision_function_[covered], probabilities[covered], "model OOB source replay")
+    _rf_equal(model.oob_counts_.tolist(), counts.tolist(), "model OOB counts")
+    _rf_equal(recorded["accuracy"], score, "OOB accuracy")
+    _rf_equal(recorded["coverage"], expected["coverage"], "OOB coverage")
+    _rf_equal(float(model.oob_coverage_), expected["coverage"], "model OOB coverage")
+    if score is None:
+        if np.isfinite(model.oob_score_):
+            raise ProvenanceError("Uncovered RandomForest model OOB score must be undefined")
+    else:
+        _rf_numeric(model.oob_score_, score, "model OOB accuracy")
+
+
+def _validate_random_forest_evidence(folder, scope, identity, folds, predictions):
+    from .classifier_config import forest_constructor_parameters
+    from .models import random_forest_seed
+    from .random_forest import ALGORITHM_VERSION, HandcraftedRandomForestClassifier
+    from .schema import validate_feature_table
+    source = folder / "random_forest_inputs.csv"
+    if not source.is_file() or sha256_file(source) != identity["dataset"]["table_sha256"]:
+        raise ProvenanceError("RandomForest source tensor differs from the run's input table identity")
+    frame = read_csv_literal(source, float_precision="round_trip")
+    validate_feature_table(frame)
+    if list(frame.columns) != identity["dataset"]["columns"]:
+        raise ProvenanceError("RandomForest source columns differ from the run input schema")
+    _same_table(frame, pd.DataFrame(identity["dataset"]["metadata"]), ["epoch_id"], "RF source epoch metadata")
+    indexed = frame.set_index("epoch_id", drop=False)
+    policy = classifier_policy(identity["config"])
+    rf_policy = policy["random_forest"]
+    audit = _read_json(folder / "random_forest_audit.json")
+    if not isinstance(audit, dict) or set(audit) != {"schema_version", "scope", "classifier_policy", "input_table_sha256", "verification_scope", "folds"}:
+        raise ProvenanceError("RandomForest audit schema differs")
+    _rf_equal(audit["schema_version"], "eeg-random-forest-cv-1", "audit schema")
+    _rf_equal(audit["scope"], scope, "audit scope")
+    _rf_equal(audit["classifier_policy"], policy, "audit classifier policy")
+    _rf_equal(audit["input_table_sha256"], identity["dataset"]["table_sha256"], "audit source identity")
+    _rf_equal(audit["verification_scope"], "source_bound_outer_model_prediction_replay_and_inner_selection_record_consistency_not_inner_refit", "verification scope")
+    records = audit["folds"]
+    splits = identity["splits"][scope]
+    if not isinstance(records, list) or len(records) != len(splits):
+        raise ProvenanceError("RandomForest audit does not cover every outer fold")
+    unit = "subject_id" if scope == "intra" else "held_out_subject"
+    expected_fields = {"algorithm_version", "context", "search_policy", "candidates", "best_candidate_index", "best_score", "best_params", "training_feature_importances", "feature_importance_scope", "oob", "model", "identity_status", "selected_features", "train_epoch_ids", "test_epoch_ids", "test_classes", "test_predictions", "test_probabilities"}
+    for record, split in zip(records, splits):
+        if not isinstance(record, dict) or set(record) != expected_fields:
+            raise ProvenanceError("RandomForest outer-fold audit fields differ")
+        context = {"scope": scope, "comparison": split["comparison"], "subject": split[unit], "outer_fold": split["outer_fold"]}
+        _rf_equal(record["context"], context, "outer-fold identity")
+        _rf_equal(record["algorithm_version"], ALGORITHM_VERSION, "algorithm version")
+        _rf_equal(record["search_policy"], rf_policy, "search policy")
+        _rf_equal(record["identity_status"], "schema_validated", "source identity status")
+        for field in ("train_epoch_ids", "test_epoch_ids"):
+            _rf_equal(record[field], split[field], field)
+        selected_fold = folds.loc[(folds.classifier == "RandomForest") & (folds[unit].astype(str) == str(split[unit]))
+            & (folds.comparison == split["comparison"]) & (folds.outer_fold == split["outer_fold"])].iloc[0]
+        names = str(selected_fold.selected_features).split(";")
+        _rf_equal(record["selected_features"], names, "selected features")
+        train_ids, test_ids = split["train_epoch_ids"], split["test_epoch_ids"]
+        Xtrain, Xtest = indexed.loc[train_ids, names].to_numpy(dtype=float), indexed.loc[test_ids, names].to_numpy(dtype=float)
+        ytrain, ytest = indexed.loc[train_ids, "class_label"].to_numpy(dtype=int), indexed.loc[test_ids, "class_label"].to_numpy(dtype=int)
+        positions = {epoch: index for index, epoch in enumerate(train_ids)}
+        candidates = record["candidates"]
+        if not isinstance(candidates, list) or len(candidates) != len(rf_policy["candidates"]):
+            raise ProvenanceError("RandomForest audit candidate matrix is incomplete")
+        means = []
+        for index, (candidate, parameters) in enumerate(zip(candidates, rf_policy["candidates"])):
+            if not isinstance(candidate, dict) or set(candidate) != {"candidate_index", "parameters", "folds", "mean_inner_accuracy"}:
+                raise ProvenanceError("RandomForest candidate audit fields differ")
+            _rf_equal(candidate["candidate_index"], index, "candidate order")
+            _rf_equal(candidate["parameters"], parameters, "candidate parameters")
+            if not isinstance(candidate["folds"], list) or len(candidate["folds"]) != len(split["inner_splits"]):
+                raise ProvenanceError("RandomForest candidate inner fold coverage differs")
+            scores = []
+            for inner_index, (observed, inner) in enumerate(zip(candidate["folds"], split["inner_splits"]), start=1):
+                if not isinstance(observed, dict) or set(observed) != {"inner_fold", "seed", "train_indices", "test_indices", "classes", "predictions", "probabilities", "accuracy", "oob_score_requested_during_search"}:
+                    raise ProvenanceError("RandomForest inner-fold fields differ")
+                a = [positions[epoch] for epoch in inner["train_epoch_ids"]]
+                b = [positions[epoch] for epoch in inner["test_epoch_ids"]]
+                _rf_equal(observed["inner_fold"], inner_index, "inner fold order")
+                _rf_equal(observed["train_indices"], a, "inner training membership")
+                _rf_equal(observed["test_indices"], b, "inner validation membership")
+                _rf_equal(observed["seed"], random_forest_seed(rf_policy["parameters"]["random_state"], context, "inner", inner_index), "inner seed")
+                _rf_equal(observed["oob_score_requested_during_search"], False, "inner OOB policy")
+                classes = np.unique(ytrain[a]).tolist()
+                _rf_equal(observed["classes"], classes, "inner classes")
+                _rf_probabilities(observed["probabilities"], classes, observed["predictions"], len(b), "inner predictions")
+                score = Fraction(int(np.count_nonzero(np.asarray(observed["predictions"]) == ytrain[b])), len(b))
+                _rf_numeric(observed["accuracy"], float(score), "inner accuracy")
+                scores.append(score)
+            mean = sum(scores, Fraction(0)) / len(scores)
+            _rf_numeric(candidate["mean_inner_accuracy"], float(mean), "candidate mean accuracy")
+            means.append(mean)
+        # Python max preserves the first exact maximum; no float tie drift.
+        best = max(range(len(means)), key=means.__getitem__)
+        _rf_equal(record["best_candidate_index"], best, "first best candidate")
+        _rf_numeric(record["best_score"], float(means[best]), "chosen inner accuracy")
+        _rf_numeric(selected_fold.grid_inner_accuracy, float(means[best]), "fold inner accuracy")
+        chosen = {**rf_policy["candidates"][best], "random_state": random_forest_seed(rf_policy["parameters"]["random_state"], context, "refit")}
+        _rf_equal(record["best_params"], chosen, "refit parameters")
+        _rf_equal(json.loads(selected_fold.best_params), chosen, "fold refit parameters")
+        model = HandcraftedRandomForestClassifier.from_dict(record["model"])
+        _rf_equal(model.get_params(deep=False), forest_constructor_parameters(chosen), "stored model parameters")
+        _rf_equal(model.classes_.tolist(), np.unique(ytrain).tolist(), "model classes")
+        if model.n_features_in_ != len(names):
+            raise ProvenanceError("RandomForest model features differ from selected subset")
+        _verify_forest_training_counts(model, Xtrain, ytrain)
+        _rf_equal(record["test_classes"], model.classes_.tolist(), "test classes")
+        probabilities = _rf_probabilities(record["test_probabilities"], model.classes_.tolist(), record["test_predictions"], len(test_ids), "outer predictions")
+        _rf_numeric(probabilities, model.predict_proba(Xtest), "source-bound outer probabilities")
+        _rf_equal(record["test_predictions"], model.predict(Xtest).tolist(), "source-bound outer predictions")
+        published = predictions.loc[predictions.classifier == "RandomForest"].set_index("epoch_id").loc[test_ids]
+        _rf_equal(published.predicted_label.tolist(), record["test_predictions"], "published outer predictions")
+        _rf_numeric(selected_fold.accuracy, float(np.mean(model.predict(Xtest) == ytest)), "source-bound outer accuracy")
+        _rf_numeric(record["training_feature_importances"], model.feature_importances_, "training impurity importance")
+        _rf_equal(record["feature_importance_scope"], "training_impurity_decrease_not_causal_or_test_permutation_importance", "importance scope")
+        _verify_forest_oob(model, Xtrain, ytrain, record["oob"], rf_policy)
+
+
 def validate_evaluation_outputs(root: Path, identity: dict) -> None:
     """Check complete fold/epoch coverage and recompute metrics, not just hashes."""
     from .evaluation import evaluation_contract, validate_evaluation_splits
-    new_contract = (identity.get("identity_version") == "evaluation-2"
+    try:
+        policy = classifier_policy(identity["config"])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ProvenanceError(f"Invalid classifier configuration: {exc}") from exc
+    classifiers = policy["classifiers"]
+    explicit = "classifiers" in identity["config"]
+    new_contract = (identity.get("identity_version") in {"evaluation-2", "evaluation-3"}
+        or "classifier_policy" in identity or explicit
         or "evaluation_contracts" in identity
         or any("split_policy" in row for rows in identity.get("splits", {}).values() for row in rows)
         or any(((root if identity.get("scope_layout") == "flat" else root / scope)
                 / "evaluation_contract.json").exists() for scope in identity["scopes"]))
     if new_contract:
-        expected_contracts = {scope: evaluation_contract(scope) for scope in identity["scopes"]}
-        if identity.get("identity_version") != "evaluation-2" or identity.get("evaluation_contracts") != expected_contracts:
+        expected_contracts = {scope: evaluation_contract(scope, cfg=identity["config"]) for scope in identity["scopes"]}
+        version = "evaluation-3" if explicit else "evaluation-2"
+        if (identity.get("identity_version") != version or identity.get("evaluation_contracts") != expected_contracts
+                or (explicit and identity.get("classifier_policy") != policy)
+                or (not explicit and "classifier_policy" in identity)):
             raise ProvenanceError("Evaluation estimand/selection-diagnostic contract is inconsistent")
         if identity.get("split_sha256") != fingerprint(identity["splits"]):
             raise ProvenanceError("Split identity digest is inconsistent")
@@ -265,7 +507,7 @@ def validate_evaluation_outputs(root: Path, identity: dict) -> None:
         expected_preds = []
         for split in identity["splits"][scope]:
             key = {name: split[name] for name in fold_keys}
-            for classifier in CLASSIFIERS:
+            for classifier in classifiers:
                 expected_keys.append({**key, "classifier": classifier})
                 for epoch in split["test_epoch_ids"]:
                     expected_preds.append({**epoch_rows[str(epoch)], **key, "classifier": classifier, "epoch_id": epoch, "true_label": epoch_rows[str(epoch)]["class_label"]})
@@ -331,6 +573,14 @@ def validate_evaluation_outputs(root: Path, identity: dict) -> None:
         freq_keys = (["subject_id"] if scope == "intra" else []) + ["comparison", "feature"]
         expected_freq = sfs.loc[sfs.accepted].rename(columns={"candidate_name": "feature"}).groupby(freq_keys).size().reset_index(name="selection_count")
         _same_table(_csv(folder / f"{scope}_feature_frequency.csv", expected_freq.columns, freq_keys), expected_freq, freq_keys, f"{scope} frequency")
+        evidence_files = [folder / "random_forest_inputs.csv", folder / "random_forest_audit.json"]
+        if "RandomForest" in classifiers:
+            try:
+                _validate_random_forest_evidence(folder, scope, identity, folds, preds)
+            except (ValueError, TypeError, KeyError, IndexError, AttributeError) as exc:
+                raise ProvenanceError(f"Invalid RandomForest evidence: {exc}") from exc
+        elif any(path.exists() for path in evidence_files):
+            raise ProvenanceError("Unexpected RandomForest evidence for an undeclared classifier")
     if _read_json(root / "config_snapshot.json") != identity["config"]:
         raise ProvenanceError("Config snapshot disagrees with run identity")
     if _read_json(root / "split_manifest.json") != identity["splits"]:
@@ -692,7 +942,7 @@ def validate_reference_coverage(root: str | Path, identity: dict, expected_featu
         unit = "subject_id" if scope == "intra" else "held_out_subject"
         keys = [unit, "comparison", "outer_fold", "classifier"]
         expected = [{**{k: split[k] for k in keys if k != "classifier"}, "classifier": classifier}
-            for split in identity["splits"][scope] for classifier in CLASSIFIERS]
+            for split in identity["splits"][scope] for classifier in resolve_classifiers(identity["config"])]
         folds = _csv(root / scope / f"{scope}_folds.csv", keys + ["accuracy"], keys)
         _same_table(folds, pd.DataFrame(expected), keys, f"{scope} reference fold coverage")
         if not folds.accuracy.between(0, 1).all():
@@ -701,7 +951,7 @@ def validate_reference_coverage(root: str | Path, identity: dict, expected_featu
         if not preds.true_label.isin([0, 1]).all() or not preds.predicted_label.isin([0, 1]).all():
             raise ProvenanceError("Reference contains invalid labels")
         count_keys = ["subject_id", "comparison", "true_label", "classifier"]
-        expected_rows = pd.concat([metadata[["subject_id", "comparison", "class_label"]].rename(columns={"class_label": "true_label"}).assign(classifier=c) for c in CLASSIFIERS])
+        expected_rows = pd.concat([metadata[["subject_id", "comparison", "class_label"]].rename(columns={"class_label": "true_label"}).assign(classifier=c) for c in resolve_classifiers(identity["config"])])
         counts = preds.groupby(count_keys).size().reset_index(name="count")
         expected_counts = expected_rows.groupby(count_keys).size().reset_index(name="count")
         _same_table(counts, expected_counts, count_keys, f"{scope} reference class counts")
