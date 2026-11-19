@@ -14,6 +14,7 @@ name: Reference numerical CI
       - 'docs/precision/**/*.csv'
       - 'docs/precision/**/*.txt'
       - 'docs/protocol_readiness.json'
+      - 'docs/phase_control_readiness.json'
       - 'pyproject.toml'
       - '.github/workflows/**'
       - '.gitignore'
@@ -29,6 +30,7 @@ name: Reference numerical CI
       - 'docs/precision/**/*.csv'
       - 'docs/precision/**/*.txt'
       - 'docs/protocol_readiness.json'
+      - 'docs/phase_control_readiness.json'
       - 'pyproject.toml'
       - '.github/workflows/**'
       - '.gitignore'
@@ -84,6 +86,13 @@ jobs:
         run: .venv-reference/bin/python scripts/19_validate_numerics.py --out-dir outputs/reference/numerical --require-reference-environment
       - name: Verify fixed external CLIs from the clean reference checkout
         run: .venv-reference/bin/python tests/run_external_reference_smoke.py --out-dir outputs/reference/fixed-external
+      - name: Rebuild frozen participant reports and verify all figure sources
+        run: |
+          .venv-reference/bin/python scripts/22_build_report.py historical --allow-legacy-results --legacy-manifest configs/legacy_discovery_mapping.json --out-dir outputs/reference/historical-report
+          .venv-reference/bin/python scripts/13_make_final_figures.py --allow-legacy-results --legacy-manifest configs/legacy_discovery_mapping.json --out-dir outputs/reference/frozen-figures
+          .venv-reference/bin/python scripts/22_build_report.py verify-historical --report outputs/reference/frozen-figures
+      - name: Validate bounded phase controls without starting a new study
+        run: .venv-reference/bin/python tests/run_phase_controls_smoke.py --out-dir outputs/reference/phase-controls
       - name: Retain reference evidence and failure diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

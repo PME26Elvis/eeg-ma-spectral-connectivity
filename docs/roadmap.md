@@ -12,6 +12,8 @@ W1（[#7](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/7)�
 
 **W7（[#10](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10)）已交付固定研究環境與數值 CI**：CPython 3.12.14／Linux x86_64、完整 dependency／wheel hash lock、實際安裝與 native backend 驗證、run／model environment binding、synthetic raw-to-validated-report fixture，以及與 compatibility matrix 分工的 reference job。手動 dependency comparison 固定分析程式與輸入，保存兩個環境的差異；舊研究 environment 欄位仍為 unknown。範圍與操作見 [重現指南](reproducibility.md)。
 
+**W5（[#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12)）與 W6（[#13](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/13)）的報告工程與條件式設計已交付**：[受試者報告](participant_reporting.md) 統一逐 epoch 預測、完整配對、macro／pooled 指標、固定模型 participant bootstrap 與正式圖表來源；[B 控制計畫](phase_controls.md) 固定三種同 α／21 pairs 表示、共用 QC／splits、有限 reference／artifact arms 與新資料啟動條件。原五人的停止規則保留；B 實際研究仍待設備、收案預算與核准，沒有新增真實控制實驗結果。
+
 ## 1. 方向與決策
 
 下一階段的核心目標是：**把目前探索性的 α-PLV 結果，發展成可以追溯、可以固定、可以交給新受試者檢驗的離線 EEG 分類研究。**
@@ -118,7 +120,7 @@ flowchart TD
 
 **完成條件：** synthetic development→artifact→external prediction→score 可完整執行；spy tests 證明 external rows/labels 不進 `fit`；artifact round-trip predictions 一致；feature order 與 cohort overlap 失配立即失敗。
 
-**已交付：** [#11 固定模型流程](fixed_external.md) 實作安全 JSON fitted state、實際 reference training capture、label-free input projection、immutable predictions、prediction-bound outcome ledger 及 participant point estimates。Schema 2.0 grouped splits 依 stable epoch ID 決定，內外層 memberships 與 selection-diagnostic 語義入 manifest；legacy positional caller 與歷史 artifacts 保留。Synthetic lifecycle、fit spies、held-out perturbations、rehashed contract attacks 及六個 CLI commands 已納入 CI。實際 study models 仍要在真實 acquisition／科學決策定案後產生，uncertainty／publication 整合接續 W5。
+**已交付：** [#11 固定模型流程](fixed_external.md) 實作安全 JSON fitted state、實際 reference training capture、label-free input projection、immutable predictions、prediction-bound outcome ledger 及 participant point estimates。Schema 2.0 grouped splits 依 stable epoch ID 決定，內外層 memberships 與 selection-diagnostic 語義入 manifest；legacy positional caller 與歷史 artifacts 保留。Synthetic lifecycle、fit spies、held-out perturbations、rehashed contract attacks 及六個 CLI commands 已納入 CI。實際 study models 仍要在真實 acquisition／科學決策定案後產生；uncertainty／publication 已由 [W5 報告層](participant_reporting.md) 接合。
 
 ### M3：前瞻協定與收案 gate
 
@@ -187,11 +189,11 @@ Calibration/EA 若使用 held-out subject 的整段測試資料估轉換，必�
 | W2 Session/epoch schema 與 ingestion QA | P0 | 一對一 events、typed QA、多 sessions、stable epoch IDs | W1 的 identity 格式；可並行設計 | [#8](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/8) |
 | W3 固定模型與可稽核 evaluation | P1 | **工程已交付**：development fit／JSON export／label-free predict／bound score、split invariants 與 synthetic adversarial tests | W1、W2；正式 freeze 需真實 W4/W7 evidence | [#11](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/11) |
 | W4 前瞻收案協定與 precision plan | P1 | **設計與 gates 已實作**；N=60／cap=94、A primary／B disabled、QC／收案稽核、lock／outcome／amendment | 正式 live lock 仍需真實 acquisition、W3／W7 與核准 | [#9](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/9) |
-| W5 Result contract 與受試者層級報告 | P1 | Prediction-derived metrics、paired Δ、uncertainty、完整圖表 gate | W1、W2；external report 需 W3/W4 | [#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) |
-| W6 有限的相位／量測控制實驗 | P2 | 新協定上的 matched α-PLV/iPLV/ciPLV、reference/artifact control | W1–W5、W7 與新資料；獨立 protocol | [#13](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/13) |
+| W5 Result contract 與受試者層級報告 | P1 | **已交付** prediction-derived metrics、精確 paired Δ、固定模型 uncertainty、自包含 external report、完整圖表 gate | W1、W2；external report 需 W3/W4 | [#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) |
+| W6 有限的相位／量測控制實驗 | P2 | **設計與數值契約已交付**：matched α-PLV/iPLV/ciPLV、獨立 B plan lock、最多九個 cells；實際新研究待啟動條件 | W1–W5、W7 與新資料；獨立 protocol | [#13](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/13) |
 | W7 固定研究環境與高風險 CI | P1 | 已交付 hash-locked reference env、compatibility/reference CI、synthetic raw-to-report、受控 dependency comparison；後續接 W3/W5 | 不依賴 private raw 公開；實際 model training evidence 由 W3 產生 | [#10](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/10) |
 
-接續順序為：在已交付的 **W1／W2／W3／W4／W7** 上以 W5 完成人層級 uncertainty 與 prediction-derived reporting。W7 的 synthetic grouped-CV 數值 fixture 與 W3 的 fixed-external lifecycle 分開驗收。W4 的程式會檢查實際 study evidence；在科學／acquisition 決策定案後產生真實 models，取得資源與核准證據，才能建立正式 lock，且必須在確認性收案與 outcome access 前通過相關 gate。
+**W1–W7 的本輪工程／規劃交付已接合**；W7 的 synthetic grouped-CV fixture、W3 fixed-external lifecycle、W5 prediction-derived report 與 W6 matched phase fixture 分開驗收。接下來取得實際科學／acquisition、資源與核准證據，依 W3 在已驗證環境產生真實 models，再由 W4 建立正式 lock。確認性收案與 outcome access 仍須先通過相應 gate。
 
 新 cohort 主評估需 W1–W5/W7 全部就緒。W6 的 B 控制 protocol 目前停用，屬下一 study；取得獨立 lock 後才能安排收集，不必以主要結果成功作為啟動條件。結果分析與原 primary 分開，避免以控制實驗挑選最好的測試條件。
 
@@ -216,7 +218,7 @@ Calibration/EA 若使用 held-out subject 的整段測試資料估轉換，必�
 
 ### 下一個可以直接開工的 checkpoint
 
-**W1／W2／W3／W4／W7 的工程與失敗情境 gates 已建立。** 下一步以 [#12 prediction-derived reporting](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12) 完成人層級 uncertainty／reporting 整合，同時取得實際 acquisition、資源與核准證據。真實模型依 [fixed external 操作](fixed_external.md) 在已驗證的 reference environment 產生；通過 [live lock／launch gate](protocol_gate.md) 後才進入新受試者研究。目前仍是 `DRAFT`／`not_registered`；沒有新受試者期間可完成 reporting 工程，不需再對五人資料找更高分數。
+**下一步是取得真實 acquisition、資源、收案安排與核准證據。** A 的模型依 [fixed external 操作](fixed_external.md) 在已驗證的 reference environment 產生，通過 [live lock／launch gate](protocol_gate.md) 後才進入新受試者研究。B 依 [獨立控制計畫](phase_controls.md) 先完成 feasibility、response window、unique-person 預算與條件式 arms 決策，再安排新的收案與 acquisition／model-training 實作驗收。目前 A 仍為 `DRAFT`／`not_registered`，B 仍為 draft／blocked。既有 reporting 與 matched-metric 工程可以重跑驗證，不需再對原五人搜尋更高分數。
 
 ## 參考資料
 

@@ -142,7 +142,7 @@ Labels 必須精確一對一覆蓋所有 predicted epochs，且 class mapping、
 
 所有 recruited participants 都在 flow 中。失訪、撤回或不滿 eligibility 的 endpoint 保留不可評估狀態，score 為空，不補成 0.5。`score_manifest.json` 保存 prediction／labels／event IDs、完整 enrollment audit、summary、paired deltas 與 artifact inventory；`verify-score` 重算所有 arithmetic 與 eligibility。
 
-本 issue 交付 **participant point estimates**，`inference_status` 明示 uncertainty／publication integration 屬 [#12](https://github.com/PME26Elvis/eeg-ma-spectral-connectivity/issues/12)。既定的 participant bootstrap、CI、precision shortfall、multiplicity 與 research-target interpretation 仍以 [confirmatory protocol](confirmatory_protocol.md) 為準，不能把這份 score summary 當成已完成確認性報告。
+Score archive 交付 **participant point estimates**；其既有 `inference_status` 保留原始 schema 的點估計範圍。[#12 的獨立報告層](participant_reporting.md) 已接入完整來源驗證、participant bootstrap／CI、precision shortfall、multiplicity 與 research-target interpretation。以 `scripts/22_build_report.py external` 建立可自包含驗證的報告，數值仍完全遵循 [confirmatory protocol](confirmatory_protocol.md)。單獨的 score summary 不等於完整確認性報告；新增報告能力亦不代表真實新 cohort 已完成。
 
 ## 5. Grouped CV 的 split 稽核
 

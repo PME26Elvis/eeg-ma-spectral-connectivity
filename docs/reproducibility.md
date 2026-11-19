@@ -176,7 +176,7 @@ python scripts/20_prepare_environment_comparison.py \
 
 CI 綠燈代表這個有限 synthetic fixture 和現有契約在指定環境下通過。它不能證明真實 acquisition facts、原始 EEG 品質、研究倫理核准、固定模型泛化或 online BCI efficacy。
 
-#10 交付新研究環境與數值 CI；#11 已交付 [development-only fit／export／predict／score](fixed_external.md) 及其 synthetic lifecycle tests，#12 仍需完成最終 participant-level reporting integration。前瞻協定仍由 [protocol gate](protocol_gate.md) 管理，真實模型訓練、acquisition、核准等必要證據不足時，正式研究保持 blocked。
+#10 交付新研究環境與數值 CI；#11 已交付 [development-only fit／export／predict／score](fixed_external.md) 及其 synthetic lifecycle tests；#12 的 [participant-level reporting](participant_reporting.md) 與 #13 的 [matched phase controls](phase_controls.md) 亦納入數值／來源契約驗證。Reference CI 實際重建 frozen figures，並保留明示 synthetic 的三種相位表示 smoke evidence。前瞻協定仍由 [protocol gate](protocol_gate.md) 管理，真實模型訓練、acquisition、核准等必要證據不足時，正式研究保持 blocked。
 
 ## 官方依據
 
