@@ -133,6 +133,22 @@ def run(source_root, target):
     ], code=2)
     if wrong_sfs["status"] != "failed_integrity_or_environment" or (target / "no_false_sfs").exists():
         raise RuntimeError("Strict verification accepted a fabricated LDA-SFS CV score")
+    # A nonnumeric marker in the legitimately missing first-step improvement
+    # must not be converted to NaN and accepted as an honest missing value.
+    trace_table.loc[0, "cv_accuracy"] = original
+    trace_table.loc[0, "improvement"] = "forged-null"
+    trace_table.to_csv(trace, index=False)
+    rehashed["artifacts"]["inter_sfs_path.csv"]["sha256"] = sha256_file(trace)
+    rehashed["artifacts"]["inter_sfs_path.csv"]["bytes"] = trace.stat().st_size
+    manifest_file.write_text(json.dumps(rehashed, ensure_ascii=False, sort_keys=True, indent=2)
+                             + "\n", encoding="utf-8")
+    validate_complete_run(attacked_sfs)
+    forged_null = execute("tampered_sfs_nonnumeric_improvement", [
+        "verify", "--run", attacked_sfs, "--out-dir", target / "no_forged_null",
+        "--max-model-fits", "64",
+    ], code=2)
+    if forged_null["status"] != "failed_integrity_or_environment" or (target / "no_forged_null").exists():
+        raise RuntimeError("Strict verification accepted a forged SFS missing value")
     # Reject an existing verification output before repeating expensive fits.
     existing_hashes = inventory(target / "S_strict")
     existing = execute("existing_strict_report_refusal", [
@@ -147,6 +163,7 @@ def run(source_root, target):
     report["status"] = "passed"
     report["tampered_inner_probabilities_rehashed"] = "fast_passed_strict_rejected"
     report["tampered_sfs_cv_scores_rehashed"] = "fast_passed_strict_rejected"
+    report["forged_sfs_null_rehashed"] = "fast_passed_strict_rejected"
     report["existing_strict_report_unchanged"] = True
     (target / "smoke_report.json").write_text(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
