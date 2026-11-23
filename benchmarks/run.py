@@ -24,7 +24,15 @@ import time
 
 import numpy as np
 
+ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "eeg-handwritten-performance-1"
+
+
+def safe_benchmark_path(path):
+    # The benchmark is ancillary; never write into canonical EEG research
+    # source/results trees even when a caller passes one as an output flag.
+    from eeg_ma.provenance import protect_output
+    return protect_output(Path(path), project_root=ROOT)
 PRESETS = {
     "ci": [(300, 21, "dense"), (300, 126, "sparse")],
     "full": [
@@ -179,7 +187,7 @@ def measured_case(args):
         stats = pstats.Stats(profiler, stream=buffer).sort_stats("cumulative")
         stats.print_stats(30)
         Path(args.profile).write_text(buffer.getvalue(), encoding="utf-8")
-    Path(args.output).write_text(json.dumps(output, sort_keys=True, indent=2,
+    safe_benchmark_path(args.output).write_text(json.dumps(output, sort_keys=True, indent=2,
                                            allow_nan=False) + "\n", encoding="utf-8")
     print(json.dumps({"status": "measured", "fit_wall_s": fit_wall,
                       "peak_rss_mib": peak_mib}, sort_keys=True))
@@ -193,9 +201,9 @@ def percentile(values, pct):
 
 
 def suite(args):
-    out = Path(args.out_dir)
+    out = safe_benchmark_path(args.out_dir)
     out.mkdir(parents=True, exist_ok=False)
-    inputs = Path(args.inputs_dir) if args.inputs_dir else out / "inputs"
+    inputs = safe_benchmark_path(args.inputs_dir) if args.inputs_dir else out / "inputs"
     inputs.mkdir(parents=True, exist_ok=True)
     observed = []
     for rows, features, kind in PRESETS[args.preset]:
@@ -349,7 +357,7 @@ def compare(args):
     result = {"schema_version": SCHEMA, "status": "verified_numerically",
               "same_runner": True, "cases": rows,
               "performance_threshold_is_advisory_not_a_flaky_ci_gate": True}
-    output = Path(args.output)
+    output = safe_benchmark_path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     import matplotlib
