@@ -72,6 +72,7 @@ python tests/run_five_classifier_exploratory_smoke.py \
 | --- | --- |
 | <code>source_features.csv</code>、<code>analysis_config.json</code>、<code>plan.json</code>、<code>eligibility_source.csv</code> | 原始 bytes，cohort／protocol／特徵與分析政策 |
 | <code>S/</code>、<code>F/</code> | 兩個完整的 #7 不可變 evaluation run，各有 held-out/inner splits、逐折結果、模型來源稽核 |
+| <code>cohort_flow.csv</code> | 每個 comparison 從獨立 roster 列出**預期 eligible 受試者 N、sessions、epochs、兩類別數**；未提供的 recruited／excluded 人數明記 unknown，**不假裝已統計完整收案流程** |
 | <code>eligible_epochs.csv</code>、<code>predictions.csv</code> | 事先固定 cohort／comparison／epoch，完整 model×comparison×epoch 覆蓋 |
 | <code>participant_results.csv</code>、<code>summary.csv</code> | TP／TN／FP／FN、每人 accuracy／BA／recalls、participant macro／SD 與獨立 pooled epoch metrics |
 | <code>paired_participants.csv</code>、<code>paired_summary.csv</code> | 每個事前配對的人數、相同 eligibility 下的 BA 差與負／零／null |

@@ -47,6 +47,12 @@ def test_complete_two_tracks_with_participant_macro(synthetic_report):
     assert len(pairs) == 1 * 4 * 3
     assert set(pairs.subject_id) == set(frame.subject_id)
     assert "no new hypothesis is chosen" in (root / "report.md").read_text().lower()
+    flow = read_csv_literal(root / "cohort_flow.csv")
+    assert len(flow) == 1 and flow.n_expected_eligible_epochs.iloc[0] == len(frame)
+    assert flow.n_expected_eligible_participants.iloc[0] == 3
+    assert flow.n_expected_eligible_sessions.iloc[0] == 6
+    assert flow.recruited_participants.isna().all()
+    assert flow.excluded_participants.isna().all()
 
 
 def test_full_feature_track_never_fabricates_sfs_accuracy(synthetic_report):
@@ -90,6 +96,17 @@ def test_draft_and_foreign_cohort_block_without_publication(synthetic_report, tm
     with pytest.raises(ExploratoryError):
         build_exploratory_report(source, config, plan, eligibility, output, allow_synthetic=False)
     assert not output.exists()
+
+
+def test_independent_roster_detects_missing_whole_participant_before_fitting(synthetic_report):
+    _, _, config, plan, eligibility, frame, _ = synthetic_report
+    cfg = json.loads(Path(config).read_text())
+    declared = json.loads(Path(plan).read_text())
+    independent = _read_eligibility(eligibility)
+    subset = frame.loc[frame.subject_id.ne("001")].copy()
+    assert subset.subject_id.nunique() == 2
+    with pytest.raises(ExploratoryError, match="independent frozen eligibility"):
+        _verify_plan(declared, cfg, subset, independent, allow_synthetic=True)
 
 
 def test_f_only_allows_two_declared_tree_models(synthetic_report):

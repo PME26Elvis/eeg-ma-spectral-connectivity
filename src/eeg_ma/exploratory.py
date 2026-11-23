@@ -51,7 +51,7 @@ DEFAULT_PAIRS = [
     {"reference": "S:LightGBM", "target": "F:LightGBM"},
 ]
 TABLE_NAMES = ("eligible_epochs.csv", "predictions.csv", "participant_results.csv",
-               "summary.csv", "paired_participants.csv", "paired_summary.csv")
+               "summary.csv", "paired_participants.csv", "paired_summary.csv", "cohort_flow.csv")
 BARE_ELIGIBILITY = [c for c in EPOCH_COLUMNS if c != "eligible_epoch_manifest_id"]
 
 
@@ -318,6 +318,25 @@ def _materialize(root: Path):
         ["experiment", "comparison", "classifier", "subject_id"]).reset_index(drop=True)
     summary = summary.sort_values(["experiment", "comparison", "classifier"]).reset_index(drop=True)
 
+    flow = []
+    for comparison in plan["comparisons"]:
+        expected = eligible.loc[eligible["comparison"] == comparison]
+        flow.append({
+            "cohort_id": plan["cohort_id"], "protocol_id": plan["protocol_id"],
+            "comparison": comparison,
+            "n_expected_eligible_participants": int(expected["subject_id"].nunique()),
+            "n_expected_eligible_sessions": int(
+                len(expected[["subject_id", "session_id"]].drop_duplicates())),
+            "n_expected_eligible_epochs": int(len(expected)),
+            "n_expected_rest_epochs": int((expected["y_true"] == 0).sum()),
+            "n_expected_task_epochs": int((expected["y_true"] == 1).sum()),
+            "recruited_participants": None,
+            "excluded_participants": None,
+            "flow_scope": "eligible_only_recruitment_and_exclusion_denominators_unknown",
+            "eligibility_sha256": plan["eligibility_sha256"],
+        })
+    cohort_flow = pd.DataFrame(flow).sort_values("comparison").reset_index(drop=True)
+
     pairs, aggregations = [], []
     by_key = {(str(row["experiment"]), str(row["classifier"]), str(row["comparison"]),
                str(row["subject_id"])): row for row in participants.to_dict("records")}
@@ -361,6 +380,7 @@ def _materialize(root: Path):
         "summary.csv": summary,
         "paired_participants.csv": pairs,
         "paired_summary.csv": paired_summary,
+        "cohort_flow.csv": cohort_flow,
     }, run_ids
 
 
@@ -389,11 +409,25 @@ def _render_report(root: Path, tables: dict, run_ids: dict) -> str:
         "Both tracks use the same independent eligible epoch manifest. Inner grid",
         "accuracies are selection diagnostics, not an independent performance estimate.",
         "",
-        "## Participant-macro summaries",
+        "## Eligible cohort flow (not a recruitment flow)",
         "",
-        "| Comparison | Track | Classifier | N | BA mean | Accuracy mean | Pooled accuracy |",
-        "|---|---|---|---:|---:|---:|---:|",
+        "The independently frozen eligible-epoch manifest is authoritative for",
+        "the expected participants/sessions/epochs below. Recruited and excluded",
+        "counts were not supplied and remain unknown, not inferred as zero.",
+        "",
+        "| Comparison | Eligible N | Sessions | Epochs | Rest | Task |",
+        "|---|---:|---:|---:|---:|---:|",
+        "",
     ]
+    for item in tables["cohort_flow.csv"].to_dict("records"):
+        lines.append(
+            f"| {item['comparison']} | {item['n_expected_eligible_participants']} | "
+            f"{item['n_expected_eligible_sessions']} | {item['n_expected_eligible_epochs']} | "
+            f"{item['n_expected_rest_epochs']} | {item['n_expected_task_epochs']} |"
+        )
+    lines += ["", "## Participant-macro summaries", "",
+              "| Comparison | Track | Classifier | N | BA mean | Accuracy mean | Pooled accuracy |",
+              "|---|---|---|---:|---:|---:|---:|"]
     for r in tables["summary.csv"].to_dict("records"):
         fmt = lambda x: "NA" if pd.isna(x) else f"{float(x):.4f}"
         track = str(r["experiment"]).removeprefix("exploratory_track_")
