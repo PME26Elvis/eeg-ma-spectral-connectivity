@@ -76,6 +76,10 @@ jobs:
           retention-days: 90
 
   large-workloads:
+    # This synthetic large-case canary is opt-in; ordinary PRs only run the
+    # bounded two-fixture same-host comparison. The complete 16-case matrix
+    # likewise stays in performance-full.yml (workflow_dispatch).
+    if: github.event_name == 'workflow_dispatch'
     name: Candidate 3000/6000-row jobs=1,2,4 (3 measured repeats)
     runs-on: ubuntu-24.04
     timeout-minutes: 75
