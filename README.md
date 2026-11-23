@@ -308,6 +308,12 @@ B 使用多 blocks、平衡 condition order，並匹配顯示與數字回應流�
 
 此處是**明確限定範圍的 LightGBM 式二分類實作**，沒有宣稱完整複製官方套件或取得新的真實 EEG 成績。使用方式、數學語意、模型封存及測試見 [LightGBM 指南](docs/lightgbm.md)。
 
+## 新 cohort 的探索性五分類器比較（S/F 雙軌）
+
+新的 [五分類器探索性比較指南](docs/exploratory_comparison.md) 提供**與原五人歷史研究、A 固定模型及 B 控制分離**的分析入口：[預先宣告的計畫模板](configs/five_classifier_exploratory.plan.json) 搭配 `scripts/25_compare_classifiers.py`。S 軌沿用共同 training-only LDA SFS 比較五分類器；F 軌讓手刻 RF／LightGBM 直接使用全部預定候選特徵，**不進行 SFS**。兩軌使用同一批新受試者的 grouped LOPO／epochs，並從逐筆預測重建受試者層級與配對報告。
+
+目前模板是 **DRAFT**；只有明示的 synthetic 測試或真實經驗證、預先固定的另行收案才能啟動。此能力不改寫原五人結果，亦不代表已完成任何新增的人體 EEG 分類比較。
+
 ## 相關資料與參考文獻
 
 研究的 [完整結果摘要](docs/final_results_summary.md)、[方法定義](docs/method_definition.md)、[分類原始結果](results/final_validation/final_validation_summary.csv) 與 [最終圖表](results/final_figures/) 可供進一步查閱。
