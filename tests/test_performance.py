@@ -172,7 +172,7 @@ def test_calibration_is_recomputed_from_observed_rows_and_exact_model_sources(fi
     observations.write_text("".join(json.dumps(x, sort_keys=True) + "\n" for x in rows))
     calib["learner_sha256"]["RandomForest"] = "0" * 64
     calibration.write_text(json.dumps(calib))
-    with pytest.raises(CostPlanError, match="source"):
+    with pytest.raises(CostPlanError, match="model implementation"):
         plan_evaluation_cost(frame, cfg, scope="inter", calibration=calibration)
 
 
