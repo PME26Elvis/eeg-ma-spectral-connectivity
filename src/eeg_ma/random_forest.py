@@ -334,7 +334,7 @@ class CARTTree:
         return result
 
 
-def _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini):
+def _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini, labels=None):
     """One sorted scan with O(n) scratch, including all valid boundary gains."""
     values = X[indices, feature]
     order = np.argsort(values, kind="stable")
@@ -344,13 +344,34 @@ def _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini):
              & (boundaries >= min_leaf) & ((len(indices) - boundaries) >= min_leaf))
     if not valid.any():
         return None
-    left_mass = np.cumsum(sorted_w)[:-1]
-    right_mass = np.cumsum(sorted_w[::-1])[::-1][1:]
-    left_gini, right_gini = np.ones(len(indices) - 1), np.ones(len(indices) - 1)
-    for label in np.unique(sorted_y):
-        class_w = np.where(sorted_y == label, sorted_w, 0.0)
-        left_gini -= (np.cumsum(class_w)[:-1] / left_mass) ** 2
-        right_gini -= (np.cumsum(class_w[::-1])[::-1][1:] / right_mass) ** 2
+    observed_labels = np.unique(sorted_y) if labels is None else labels
+    if len(observed_labels) == 2 and np.all(sorted_w == 1.0):
+        # A common unweighted binary EEG fold has *integer-exact* class
+        # counts. Avoid four weighted cumsums and repeated class-weight
+        # buffers. For n <= 2**53 these divisions and ordered Gini
+        # subtractions are identical to the generic float64 calculation.
+        # Unbalanced or nonuniform weights always use the original path.
+        left_mass = boundaries.astype(np.float64)
+        right_mass = (len(indices) - boundaries).astype(np.float64)
+        first = np.cumsum(sorted_y == observed_labels[0], dtype=np.int64)[:-1]
+        left_first = first.astype(np.float64)
+        right_first = (int(np.sum(sorted_y == observed_labels[0])) - first).astype(np.float64)
+        left_second = left_mass - left_first
+        right_second = right_mass - right_first
+        left_gini = np.ones(len(indices) - 1)
+        right_gini = np.ones(len(indices) - 1)
+        left_gini -= (left_first / left_mass) ** 2
+        right_gini -= (right_first / right_mass) ** 2
+        left_gini -= (left_second / left_mass) ** 2
+        right_gini -= (right_second / right_mass) ** 2
+    else:
+        left_mass = np.cumsum(sorted_w)[:-1]
+        right_mass = np.cumsum(sorted_w[::-1])[::-1][1:]
+        left_gini, right_gini = np.ones(len(indices) - 1), np.ones(len(indices) - 1)
+        for label in observed_labels:
+            class_w = np.where(sorted_y == label, sorted_w, 0.0)
+            left_gini -= (np.cumsum(class_w)[:-1] / left_mass) ** 2
+            right_gini -= (np.cumsum(class_w[::-1])[::-1][1:] / right_mass) ** 2
     np.clip(left_gini, 0.0, 1.0, out=left_gini)
     np.clip(right_gini, 0.0, 1.0, out=right_gini)
     total = left_mass + right_mass
@@ -365,12 +386,22 @@ def _best_split(X, y, weights, indices, feature_rng, feature_limit, min_leaf, pa
     then rescan only the selected feature using the *global* cutoff; otherwise
     local boundary ties and feature ties can accidentally spend tolerance twice.
     """
+    # One node has one class set. Reuse it for all sampled features instead
+    # of sorting the same labels once per candidate. Retain only the
+    # highest-maximum candidate's scan to avoid sorting it a second time.
+    # Final feature/boundary selection still uses the *original* global
+    # tolerance cutoff, never a local or chained approximate tie.
+    labels = np.unique(y[indices])
     maxima = []
+    cached_feature, cached_scan, highest = None, None, -np.inf
     for inspected, feature in enumerate(feature_rng.permutation(X.shape[1]), start=1):
-        scanned = _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini)
+        scanned = _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini, labels)
         if scanned is not None:
             _, _, valid, gains = scanned
-            maxima.append((int(feature), float(np.max(gains[valid]))))
+            maximum = float(np.max(gains[valid]))
+            maxima.append((int(feature), maximum))
+            if maximum > highest:
+                highest, cached_feature, cached_scan = maximum, int(feature), scanned
         # Constant/leaf-infeasible sampled features cannot force a dead end:
         # extend the permutation only until an admissible split has been seen.
         if inspected >= feature_limit and maxima:
@@ -379,7 +410,13 @@ def _best_split(X, y, weights, indices, feature_rng, feature_limit, min_leaf, pa
         return None
     cutoff = max(gain for _, gain in maxima) - _TOL
     feature = min(feature for feature, maximum in maxima if maximum >= cutoff)
-    order, sorted_values, valid, gains = _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini)
+    # A lower-index feature may win the global tie even though it does not
+    # attain the largest raw gain; in that rare case perform the original
+    # second scan. Common strict winners skip that redundant sort/scan.
+    scanned = (cached_scan if feature == cached_feature else
+               _feature_gains(X, y, weights, indices, feature,
+                              min_leaf, parent_gini, labels))
+    order, sorted_values, valid, gains = scanned
     boundary = int(np.flatnonzero(valid & (gains >= cutoff))[0])
     gain = float(gains[boundary])
     if gain < -_TOL:

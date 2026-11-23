@@ -4,7 +4,7 @@ import argparse
 import pandas as pd
 
 from eeg_ma.config import load_config
-from eeg_ma.experiment_runs import add_identity_arguments, load_features, run_single, source_inputs, add_classifier_arguments, apply_classifier_arguments
+from eeg_ma.experiment_runs import add_identity_arguments, load_features, run_single, source_inputs, add_classifier_arguments, apply_classifier_arguments, add_cost_arguments, check_cost_preflight
 from eeg_ma.provenance import read_csv_literal
 
 
@@ -15,10 +15,14 @@ def main() -> int:
     p.add_argument("--out-dir", default="outputs/results/baseline/inter")
     add_identity_arguments(p)
     add_classifier_arguments(p)
+    add_cost_arguments(p)
     args = p.parse_args()
     cfg = apply_classifier_arguments(load_config(args.config), args.classifiers)
 
     df = load_features(args.features, args.legacy_manifest)
+    execute, code = check_cost_preflight(args, df, cfg, "inter")
+    if not execute:
+        return code
     root = run_single(df, cfg, "inter", args.out_dir,
         input_paths=source_inputs({"features": args.features, "config": args.config}, args.legacy_manifest),
         resume=args.resume)

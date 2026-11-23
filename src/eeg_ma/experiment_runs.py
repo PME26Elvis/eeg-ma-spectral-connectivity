@@ -49,6 +49,52 @@ def apply_classifier_arguments(cfg, classifiers=None):
     return effective
 
 
+def add_cost_arguments(parser):
+    """Opt-in guard; no effect on existing historical or default run semantics."""
+    parser.add_argument("--dry-run", action="store_true",
+        help="Validate full grouped-CV workload without fitting or publishing a run")
+    parser.add_argument("--cost-max-estimated-seconds", type=float,
+        help="Require a same-host measured calibration and refuse if projected runtime exceeds budget")
+    parser.add_argument("--cost-max-estimated-rss-mib", type=float,
+        help="Refuse when heuristic memory planning envelope exceeds given MiB; not a hard RSS limit")
+    parser.add_argument("--cost-calibration",
+        help="Machine-specific calibration from benchmarks/run.py; required for time budgets")
+    parser.add_argument("--cost-plan-out",
+        help="Optional separate outputs/ root to preserve a read-only preflight/blocked plan, never a complete run")
+
+
+def check_cost_preflight(args, features, cfg, scope):
+    """Return False to stop before fitting, True to execute the usual run."""
+    import json
+    from .performance import plan_evaluation_cost, CostLimitExceeded, CostPlanError
+    from .artifacts import new_output_directory
+    flags = (args.dry_run or args.cost_max_estimated_seconds is not None
+             or args.cost_max_estimated_rss_mib is not None
+             or args.cost_calibration is not None or args.cost_plan_out is not None)
+    if not flags:
+        return True, 0
+    try:
+        report = plan_evaluation_cost(
+            features, cfg, scope=scope, calibration=args.cost_calibration,
+            max_estimated_seconds=args.cost_max_estimated_seconds,
+            max_estimated_rss_mib=args.cost_max_estimated_rss_mib,
+        )
+        code = 0
+        execute = not args.dry_run
+    except (CostLimitExceeded, CostPlanError, ValueError) as exc:
+        report = {"schema_version": "eeg-training-cost-plan-1", "status": "blocked",
+                  "error": str(exc), "scope": scope, "complete_run_published": False}
+        code = 2
+        execute = False
+    if args.cost_plan_out is not None:
+        with new_output_directory(args.cost_plan_out) as stage:
+            (stage / "cost_plan.json").write_text(json.dumps(
+                report, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False
+            ) + "\n", encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False))
+    return execute, code
+
+
 def source_inputs(paths, legacy_manifest=None):
     inputs = {name: path for name, path in paths.items() if path is not None}
     if legacy_manifest is not None:
