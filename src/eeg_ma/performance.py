@@ -114,6 +114,7 @@ def plan_evaluation_cost(features, config, *, scope, calibration=None,
     cap = int(config["sfs"]["max_features"]) if config["sfs"].get("max_features") is not None else len(cols)
     dimensions = len(cols) if policy["feature_selection"] == "all_declared_features" else min(len(cols), cap)
     full_tree_fits, nodes_upper, units, max_rows = 0, 0, 0, 0
+    peak_model_nodes, retained_outer_nodes = 0, 0
     for split in splits:
         outer = len(split["train_epoch_ids"])
         max_rows = max(max_rows, outer)
@@ -126,9 +127,14 @@ def plan_evaluation_cost(features, config, *, scope, calibration=None,
                     size = len(inner["train_epoch_ids"])
                     units += tree_work_units(learner, size, dimensions, params)
                     full_tree_fits += 1
-                    nodes_upper += _node_upper(learner, size, params)
+                    nodes = _node_upper(learner, size, params)
+                    nodes_upper += nodes
+                    peak_model_nodes = max(peak_model_nodes, nodes)
             units += max(tree_work_units(learner, outer, dimensions, p) for p in details["candidates"])
-            nodes_upper += max(_node_upper(learner, outer, p) for p in details["candidates"])
+            final_nodes = max(_node_upper(learner, outer, p) for p in details["candidates"])
+            nodes_upper += final_nodes
+            peak_model_nodes = max(peak_model_nodes, final_nodes)
+            retained_outer_nodes += final_nodes
             full_tree_fits += 1
     sfs_fits = (0 if policy["feature_selection"] == "all_declared_features"
                 else sum(sum(len(cols) - i for i in range(dimensions)) * len(split["inner_splits"])
@@ -136,7 +142,11 @@ def plan_evaluation_cost(features, config, *, scope, calibration=None,
     input_mib = 8 * len(features) * len(cols) / 2**20
     fold_mib = 8 * max_rows * len(cols) / 2**20
     # Empirical headroom assumption; neither hard memory cap nor OS peak RSS.
-    memory_mib = math.ceil(12 * (input_mib + fold_mib) + 256 * nodes_upper / 2**20 + 128)
+    # Total nodes across thousands of sequential inner fits is work/disk
+    # volume, not peak RAM. Only one fitted model and the retained outer
+    # model audits coexist in this execution path.
+    memory_mib = math.ceil(12 * (input_mib + fold_mib)
+                           + 256 * (peak_model_nodes + retained_outer_nodes) / 2**20 + 128)
     from .config import gamma_grid
     inner_folds = sum(len(split["inner_splits"]) for split in splits)
     grid = len(config["rbf_grid"]["C"]) * len(gamma_grid(config))
@@ -154,6 +164,8 @@ def plan_evaluation_cost(features, config, *, scope, calibration=None,
         "full_tree_model_fits": full_tree_fits, "sfs_inner_model_fits_upper": sfs_fits,
         "other_classifier_model_fits": other_fits,
         "tree_work_units": units, "projected_nodes_upper": nodes_upper,
+        "peak_model_nodes_upper": peak_model_nodes,
+        "retained_outer_model_nodes_upper": retained_outer_nodes,
         "estimated_memory_mib": memory_mib,
         "memory_scope": "heuristic_planning_envelope_not_hard_process_RSS_limit",
         "cpu_environment": machine_identity(),
