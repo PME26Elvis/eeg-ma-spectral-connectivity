@@ -344,13 +344,34 @@ def _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini, label
              & (boundaries >= min_leaf) & ((len(indices) - boundaries) >= min_leaf))
     if not valid.any():
         return None
-    left_mass = np.cumsum(sorted_w)[:-1]
-    right_mass = np.cumsum(sorted_w[::-1])[::-1][1:]
-    left_gini, right_gini = np.ones(len(indices) - 1), np.ones(len(indices) - 1)
-    for label in (np.unique(sorted_y) if labels is None else labels):
-        class_w = np.where(sorted_y == label, sorted_w, 0.0)
-        left_gini -= (np.cumsum(class_w)[:-1] / left_mass) ** 2
-        right_gini -= (np.cumsum(class_w[::-1])[::-1][1:] / right_mass) ** 2
+    observed_labels = np.unique(sorted_y) if labels is None else labels
+    if len(observed_labels) == 2 and np.all(sorted_w == 1.0):
+        # A common unweighted binary EEG fold has *integer-exact* class
+        # counts. Avoid four weighted cumsums and repeated class-weight
+        # buffers. For n <= 2**53 these divisions and ordered Gini
+        # subtractions are identical to the generic float64 calculation.
+        # Unbalanced or nonuniform weights always use the original path.
+        left_mass = boundaries.astype(np.float64)
+        right_mass = (len(indices) - boundaries).astype(np.float64)
+        first = np.cumsum(sorted_y == observed_labels[0], dtype=np.int64)[:-1]
+        left_first = first.astype(np.float64)
+        right_first = (int(np.sum(sorted_y == observed_labels[0])) - first).astype(np.float64)
+        left_second = left_mass - left_first
+        right_second = right_mass - right_first
+        left_gini = np.ones(len(indices) - 1)
+        right_gini = np.ones(len(indices) - 1)
+        left_gini -= (left_first / left_mass) ** 2
+        right_gini -= (right_first / right_mass) ** 2
+        left_gini -= (left_second / left_mass) ** 2
+        right_gini -= (right_second / right_mass) ** 2
+    else:
+        left_mass = np.cumsum(sorted_w)[:-1]
+        right_mass = np.cumsum(sorted_w[::-1])[::-1][1:]
+        left_gini, right_gini = np.ones(len(indices) - 1), np.ones(len(indices) - 1)
+        for label in observed_labels:
+            class_w = np.where(sorted_y == label, sorted_w, 0.0)
+            left_gini -= (np.cumsum(class_w)[:-1] / left_mass) ** 2
+            right_gini -= (np.cumsum(class_w[::-1])[::-1][1:] / right_mass) ** 2
     np.clip(left_gini, 0.0, 1.0, out=left_gini)
     np.clip(right_gini, 0.0, 1.0, out=right_gini)
     total = left_mass + right_mass
