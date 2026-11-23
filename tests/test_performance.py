@@ -206,8 +206,12 @@ def test_rf_unit_weight_fast_path_matches_original_two_class_scan_bitwise():
         np.clip(left_gini, 0, 1, out=left_gini)
         np.clip(right_gini, 0, 1, out=right_gini)
         total = left_mass + right_mass
-        original = _impurity(np.bincount(y, minlength=2)) - (
-            (left_mass / total) * left_gini + (right_mass / total) * right_gini)
+        # Preserve the original CART calculation's left-associative
+        # float64 subtraction, not an algebraically equivalent but differently
+        # rounded parenthesized sum (difference can be 2.8e-17).
+        original = (_impurity(np.bincount(y, minlength=2))
+                    - (left_mass / total) * left_gini
+                    - (right_mass / total) * right_gini)
         np.testing.assert_array_equal(gains, original)
 
 
