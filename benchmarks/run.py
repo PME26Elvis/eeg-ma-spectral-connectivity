@@ -224,14 +224,24 @@ def suite(args):
         for model in ("RandomForest", "LightGBM"):
             for jobs in args.jobs:
                 group = f"{name}-{model}-j{jobs}"
+                command = [sys.executable, __file__, "case", "--input", str(source),
+                           "--rows", str(rows), "--features", str(features),
+                           "--kind", kind, "--model", model, "--jobs", str(jobs)]
+                if args.profile:
+                    # cProfile can double or triple wall time for high-call-
+                    # count boosting: NEVER include profiled fits in a median
+                    # or percentile. Run it in a dedicated *unmeasured* process.
+                    profiled = out / f"{group}-profile-only.json"
+                    try:
+                        subprocess.run(command + ["--output", str(profiled),
+                                       "--profile", str(out / f"{group}.profile.txt")],
+                                       check=True, timeout=args.timeout,
+                                       capture_output=True, text=True)
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                        raise RuntimeError(f"Separate profiling failed: {group}: {exc}") from exc
                 for rep in range(-args.warmups, args.repeats):
                     output = out / f"{group}-rep{rep}.json"
-                    cmd = [sys.executable, __file__, "case", "--input", str(source),
-                           "--rows", str(rows), "--features", str(features),
-                           "--kind", kind, "--model", model, "--jobs", str(jobs),
-                           "--output", str(output)]
-                    if args.profile and rep == 0:
-                        cmd += ["--profile", str(out / f"{group}.profile.txt")]
+                    cmd = command + ["--output", str(output)]
                     try:
                         subprocess.run(cmd, check=True, timeout=args.timeout,
                                        capture_output=True, text=True)
@@ -288,11 +298,13 @@ def suite(args):
         "schema_version": SCHEMA, "preset": args.preset, "status": "complete",
         "host": machine(), "seed": args.seed,
         "n_measurements": len(observed), "warmups": args.warmups,
+        "profiling_excluded_from_measured_repeats": True,
         "repeats": args.repeats, "cases": summaries,
         "scope": "SYNTHETIC_ENGINEERING_ONLY_NOT_EEG_MODEL_ACCURACY",
         "warnings": ["Wall time is host- and workload-specific; do not infer training speed from a different runner.",
                      "Peak RSS is process-level and includes imports, not net allocation from fit.",
                      "P95 with three repeats is descriptive, not a statistically precise tail percentile.",
+                     "cProfile is an independent unmeasured subprocess, excluded from all timing quantiles.",
                      "Tree-work calibration excludes LDA SFS and SVM/KFDA compute."],
     }
     (out / "summary.json").write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")
