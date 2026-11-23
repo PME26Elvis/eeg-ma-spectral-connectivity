@@ -42,7 +42,7 @@ def test_complete_two_tracks_with_participant_macro(synthetic_report):
     assert set(summary.classifier) == {"LDA", "RBF-SVM", "KFDA", "RandomForest", "LightGBM"}
     assert set(summary.n_subjects) == {3}
     assert set(summary.n_ba_eligible) == {3}
-    assert set(summary.n_epochs) == {48}
+    assert set(summary.n_epochs) == {len(frame) // 2}
     pairs = read_csv_literal(root / "paired_participants.csv")
     assert len(pairs) == 2 * 4 * 3
     assert set(pairs.subject_id) == set(frame.subject_id)

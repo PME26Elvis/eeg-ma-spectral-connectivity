@@ -398,7 +398,7 @@ def _inventory(root: Path):
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             raise ExploratoryError("Symlink inside comparison archive is forbidden")
-        if path.is_file() and path.name != "report_manifest.json":
+        if path.is_file() and path.relative_to(root).as_posix() != "report_manifest.json":
             relative = path.relative_to(root).as_posix()
             items[relative] = {"sha256": sha256_file(path), "bytes": path.stat().st_size}
     return items
