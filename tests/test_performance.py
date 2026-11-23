@@ -1,0 +1,130 @@
+"""CPU budget planning and benchmark science guardrails; no human EEG inputs."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+import numpy as np
+import pytest
+
+from eeg_ma.performance import (
+    CALIBRATION_VERSION, CostLimitExceeded, CostPlanError, machine_identity,
+    plan_evaluation_cost, tree_work_units,
+)
+from eeg_ma.classifier_config import classifier_policy
+from exploratory_fixture import create_exploratory_fixture
+
+
+@pytest.fixture(scope="module")
+def fixture(tmp_path_factory):
+    root = tmp_path_factory.mktemp("performance-cost") / "source"
+    features, config, _, _, frame = create_exploratory_fixture(root)
+    return features, config, frame
+
+
+def test_structural_cost_and_grouped_inner_fit_counts(fixture):
+    _, config, frame = fixture
+    cfg = json.loads(Path(config).read_text())
+    plan = plan_evaluation_cost(frame, cfg, scope="inter")
+    assert plan["status"] == "preflight_only"
+    assert plan["outer_folds"] == 3
+    assert plan["full_tree_model_fits"] == 30
+    assert plan["dataset"]["participants"] == 3
+    assert plan["tree_work_units"] > 0
+    assert plan["sfs_inner_model_fits_upper"] > 0
+    assert plan["estimated_seconds"] is None
+    assert "not_hard" in plan["memory_scope"]
+
+
+def test_full_feature_mode_avoids_fake_sfs_work(fixture):
+    _, config, frame = fixture
+    cfg = json.loads(Path(config).read_text())
+    cfg["classifiers"] = ["RandomForest", "LightGBM"]
+    cfg["feature_selection_policy"] = "all_declared_features"
+    cfg["sfs"]["max_features"] = None
+    plan = plan_evaluation_cost(frame, cfg, scope="inter")
+    assert plan["sfs_inner_model_fits_upper"] == 0
+    assert plan["dataset"]["max_model_features"] == 3
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, float("nan"), float("inf")])
+def test_unbounded_and_bogus_limits_fail_closed(fixture, limit):
+    _, config, frame = fixture
+    cfg = json.loads(Path(config).read_text())
+    with pytest.raises(CostPlanError):
+        plan_evaluation_cost(frame, cfg, scope="inter", max_estimated_rss_mib=limit)
+
+
+def test_runtime_budget_requires_real_measured_same_host_calibration(fixture, tmp_path):
+    _, config, frame = fixture
+    cfg = json.loads(Path(config).read_text())
+    with pytest.raises(CostLimitExceeded, match="same-host calibration"):
+        plan_evaluation_cost(frame, cfg, scope="inter", max_estimated_seconds=5)
+    fake = tmp_path / "bad.json"
+    fake.write_text(json.dumps({"schema_version": CALIBRATION_VERSION, "host": {"cpu_model": "other"},
+                                "seconds_per_unit": .0001, "measurements": 3,
+                                "safety_factor": 1.5}))
+    with pytest.raises(CostPlanError, match="calibration"):
+        plan_evaluation_cost(frame, cfg, scope="inter", calibration=fake)
+
+
+def test_estimated_memory_budget_rejects_before_training(fixture):
+    _, config, frame = fixture
+    cfg = json.loads(Path(config).read_text())
+    with pytest.raises(CostLimitExceeded, match="planned memory"):
+        plan_evaluation_cost(frame, cfg, scope="inter", max_estimated_rss_mib=1)
+
+
+def test_cli_dry_run_and_budget_failure_publish_no_results(fixture, tmp_path):
+    features, config, frame = fixture
+    script = Path(__file__).resolve().parents[1] / "scripts" / "04_inter_subject.py"
+    output = tmp_path / "never_complete"
+    preflight = subprocess.run([sys.executable, str(script),
+                               "--features", str(features), "--config", str(config),
+                               "--out-dir", str(output), "--dry-run"],
+                               capture_output=True, text=True)
+    assert preflight.returncode == 0, preflight.stderr
+    result = json.loads(preflight.stdout)
+    assert result["status"] == "preflight_only"
+    assert not output.exists()
+    rejected_dir = tmp_path / "blocked-plan"
+    rejected = subprocess.run([sys.executable, str(script),
+                               "--features", str(features), "--config", str(config),
+                               "--out-dir", str(output),
+                               "--cost-max-estimated-seconds", "1",
+                               "--cost-plan-out", str(rejected_dir)],
+                               capture_output=True, text=True)
+    assert rejected.returncode == 2, rejected.stderr
+    assert json.loads(rejected.stdout)["status"] == "blocked"
+    assert not output.exists()
+    evidence = json.loads((rejected_dir / "cost_plan.json").read_text())
+    assert evidence["complete_run_published"] is False
+
+
+def test_deterministic_synthetic_benchmark_generation(tmp_path):
+    from importlib.util import spec_from_file_location, module_from_spec
+    src = Path(__file__).resolve().parents[1] / "benchmarks" / "run.py"
+    spec = spec_from_file_location("bench_engineering", src)
+    m = module_from_spec(spec)
+    spec.loader.exec_module(m)
+    a, y = m.fixture(300, 126, "sparse", 270)
+    b, z = m.fixture(300, 126, "sparse", 270)
+    np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(y, z)
+    assert not np.isnan(a).any()
+    assert set(np.unique(y)) == {0, 1}
+    assert len(m.PRESETS["full"]) == 16
+    assert {case[2] for case in m.PRESETS["full"]} == {
+        "sparse", "dense", "constant", "correlated"
+    }
+
+
+def test_work_units_monotone_across_dimensions():
+    rf = {"n_estimators": 8, "max_features": "sqrt"}
+    boost = {"n_estimators": 8, "num_leaves": 7, "feature_fraction": 1}
+    for name, cfg in (("RandomForest", rf), ("LightGBM", boost)):
+        assert (tree_work_units(name, 300, 21, cfg)
+                < tree_work_units(name, 600, 21, cfg)
+                < tree_work_units(name, 600, 126, cfg))
