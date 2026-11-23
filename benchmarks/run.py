@@ -274,7 +274,6 @@ def suite(args):
         "measurements": len(observed), "safety_factor": 2.0,
         "scope": "same_host_handwritten_tree_units_only_no_SFS_or_non_tree_runtime",
     }
-    (out / "calibration.json").write_text(json.dumps(calibration, indent=2) + "\n")
     report = {
         "schema_version": SCHEMA, "preset": args.preset, "status": "complete",
         "host": machine(), "seed": args.seed,
@@ -294,6 +293,18 @@ def suite(args):
     with (out / "measurements.jsonl").open("w", encoding="utf-8") as stream:
         for row in observed:
             stream.write(canonical(row) + "\n")
+    # Validate calibration provenance against the actual measured observations.
+    observations = out / "measurements.jsonl"
+    calibration["measurements_sha256"] = digest(observations)
+    calibration["learner_sha256"] = {
+        learner: next(row["source_module_sha256"] for row in observed if row["model"] == learner)
+        for learner in ("RandomForest", "LightGBM")
+    }
+    for learner, source_sha in calibration["learner_sha256"].items():
+        if any(row["source_module_sha256"] != source_sha for row in observed if row["model"] == learner):
+            raise AssertionError("Learner source changed within one benchmark suite")
+    (out / "calibration.json").write_text(json.dumps(
+        calibration, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": "complete", "out_dir": str(out),
                       "measurements": len(observed), "cases": len(summaries)}))
 
