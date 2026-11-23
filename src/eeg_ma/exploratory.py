@@ -12,6 +12,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 
@@ -51,6 +52,7 @@ DEFAULT_PAIRS = [
 ]
 TABLE_NAMES = ("eligible_epochs.csv", "predictions.csv", "participant_results.csv",
                "summary.csv", "paired_participants.csv", "paired_summary.csv")
+BARE_ELIGIBILITY = [c for c in EPOCH_COLUMNS if c != "eligible_epoch_manifest_id"]
 
 
 class ExploratoryError(ValueError):
@@ -86,10 +88,28 @@ def _is_literal(value):
     return isinstance(value, str) and value and value == value.strip()
 
 
-def _verify_plan(plan: dict, cfg: dict, features: pd.DataFrame, *, allow_synthetic: bool):
+def _read_eligibility(path: Path) -> pd.DataFrame:
+    """Independently prepared expected cohort/epoch roster; never infer completion from predictions."""
+    try:
+        frame = read_csv_literal(path)
+    except (OSError, ValueError) as exc:
+        raise ExploratoryError("Cannot read independent eligibility manifest") from exc
+    if list(frame.columns) != BARE_ELIGIBILITY or frame.empty:
+        raise ExploratoryError("Eligibility manifest must contain the exact ordered cohort/session/epoch/label columns")
+    for col in [c for c in BARE_ELIGIBILITY if c != "y_true"]:
+        if any(not _is_literal(v) for v in frame[col]):
+            raise ExploratoryError("Eligibility manifest has invalid literal IDs")
+    if (frame["y_true"].isna().any() or not frame["y_true"].isin([0, 1]).all()
+            or frame["epoch_id"].duplicated().any()):
+        raise ExploratoryError("Eligibility manifest contains missing/duplicate epochs or invalid binary truth")
+    return frame
+
+
+def _verify_plan(plan: dict, cfg: dict, features: pd.DataFrame,
+                 eligibility: pd.DataFrame, *, allow_synthetic: bool):
     fields = {"schema_version", "analysis_id", "status", "cohort_id", "protocol_id",
               "comparisons", "feature_set", "tracks", "paired_comparisons",
-              "registration_evidence", "predeclared_scope"}
+              "registration_evidence", "predeclared_scope", "eligibility_sha256"}
     if not isinstance(plan, dict) or set(plan) != fields:
         raise ExploratoryError("Exploratory plan has missing or unknown fields")
     if plan["schema_version"] != PLAN_VERSION or plan["analysis_id"] != ANALYSIS_ID:
@@ -118,6 +138,18 @@ def _verify_plan(plan: dict, cfg: dict, features: pd.DataFrame, *, allow_synthet
         raise ExploratoryError("The complete predeclared comparison matrix must match the input data/config")
     if plan["feature_set"] != cfg.get("feature_set", "all"):
         raise ExploratoryError("Declared feature set differs from the analysis configuration")
+    if (not isinstance(plan["eligibility_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", plan["eligibility_sha256"]) is None):
+        raise ExploratoryError("A frozen SHA-256 for the independent eligibility manifest is required")
+    expected = features[
+        ["cohort_id", "protocol_id", "comparison", "subject_id", "session_id",
+         "epoch_id", "class_label"]
+    ].rename(columns={"class_label": "y_true"})
+    observed = eligibility[BARE_ELIGIBILITY]
+    order = BARE_ELIGIBILITY
+    if (expected.sort_values(order).reset_index(drop=True).to_dict("records")
+            != observed.sort_values(order).reset_index(drop=True).to_dict("records")):
+        raise ExploratoryError("Feature input does not match the independent frozen eligibility roster")
     if cfg.get("classifiers") != list(S_CLASSIFIERS) or "feature_selection_policy" in cfg:
         raise ExploratoryError("Base analysis config must explicitly list the five standard S-track classifiers")
     if not feature_columns(features, plan["feature_set"]):
@@ -165,13 +197,10 @@ def _config_for_track(config: dict, track: str) -> dict:
     return effective
 
 
-def _eligible(features: pd.DataFrame, plan: dict) -> pd.DataFrame:
+def _eligible(independent: pd.DataFrame, plan: dict) -> pd.DataFrame:
     parts = []
     for comparison in plan["comparisons"]:
-        group = features.loc[features["comparison"] == comparison].copy()
-        bare = group.rename(columns={"class_label": "y_true"})
-        bare = bare[["cohort_id", "protocol_id", "comparison", "subject_id",
-                     "session_id", "epoch_id", "y_true"]]
+        bare = independent.loc[independent["comparison"] == comparison].copy()
         identifier = fingerprint(bare.sort_values("epoch_id").to_dict("records"))
         bare["eligible_epoch_manifest_id"] = identifier
         parts.append(bare)
@@ -183,7 +212,8 @@ def _run_track(root: Path, track: str, features: pd.DataFrame, config: dict, pla
                *, code: dict, environment: dict):
     effective = _config_for_track(config, track)
     inputs = {"features": root / "source_features.csv",
-              "analysis_config": root / "analysis_config.json", "plan": root / "plan.json"}
+              "analysis_config": root / "analysis_config.json", "plan": root / "plan.json",
+              "eligibility": root / "eligibility_source.csv"}
     identity = build_run_identity(
         features, effective, ["inter"], input_paths=inputs,
         experiment={"name": f"exploratory_track_{track}", "feature_set":plan["feature_set"]},
@@ -208,8 +238,11 @@ def _materialize(root: Path):
     config = _read_json(root / "analysis_config.json")
     features = load_feature_table(root / "source_features.csv")
     validate_feature_table(features)
-    _verify_plan(plan, config, features, allow_synthetic=True)
-    eligible = _eligible(features, plan)
+    independent = _read_eligibility(root / "eligibility_source.csv")
+    if sha256_file(root / "eligibility_source.csv") != plan["eligibility_sha256"]:
+        raise ExploratoryError("Independent eligibility manifest bytes differ from the frozen plan")
+    _verify_plan(plan, config, features, independent, allow_synthetic=True)
+    eligible = _eligible(independent, plan)
     lookup = features.set_index("epoch_id", drop=False)
     frames, expected_groups = [], []
     run_ids = {}
@@ -226,7 +259,8 @@ def _materialize(root: Path):
                 }):
             raise ExploratoryError("Track run identity differs from the archived exploratory plan")
         for name, path in (("features", "source_features.csv"),
-                           ("analysis_config", "analysis_config.json"), ("plan", "plan.json")):
+                           ("analysis_config", "analysis_config.json"), ("plan", "plan.json"),
+                           ("eligibility", "eligibility_source.csv")):
             if identity["inputs"][name]["sha256"] != sha256_file(root / path):
                 raise ExploratoryError(f"Track {track} uses different {name} bytes")
         if identity["dataset"]["n_rows"] != len(features):
@@ -443,19 +477,23 @@ def validate_exploratory_report(path: str | Path) -> dict:
 
 
 def build_exploratory_report(feature_path: str | Path, config_path: str | Path,
-                             plan_path: str | Path, out_dir: str | Path,
-                             *, allow_synthetic=False) -> dict:
-    paths = [Path(value) for value in (feature_path, config_path, plan_path)]
+                             plan_path: str | Path, eligibility_path: str | Path,
+                             out_dir: str | Path, *, allow_synthetic=False) -> dict:
+    paths = [Path(value) for value in (feature_path, config_path, plan_path, eligibility_path)]
     source_hashes = [sha256_file(p) for p in paths]
     config, plan = _read_json(paths[1]), _read_json(paths[2])
     features = load_feature_table(paths[0])
     validate_feature_table(features)
-    _verify_plan(plan, config, features, allow_synthetic=allow_synthetic)
+    independent = _read_eligibility(paths[3])
+    if sha256_file(paths[3]) != plan["eligibility_sha256"]:
+        raise ExploratoryError("Independent eligibility manifest digest does not match the frozen plan")
+    _verify_plan(plan, config, features, independent, allow_synthetic=allow_synthetic)
     target = protect_output(out_dir)
     code = code_identity()
     environment = environment_identity()
     with new_output_directory(target) as stage:
-        for source, name in zip(paths, ("source_features.csv", "analysis_config.json", "plan.json")):
+        for source, name in zip(paths, ("source_features.csv", "analysis_config.json",
+                                       "plan.json", "eligibility_source.csv")):
             shutil.copyfile(source, stage / name)
         if [sha256_file(p) for p in paths] != source_hashes:
             raise ExploratoryError("Source bytes changed while being archived")
