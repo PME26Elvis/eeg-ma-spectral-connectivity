@@ -318,6 +318,10 @@ B 使用多 blocks、平衡 condition order，並匹配顯示與數字回應流�
 
 在原本的 source-bound fast audit 之外，現在可使用 [strict training replay 操作與證據指南](docs/strict_replay.md)／[CLI](scripts/26_strict_verify.py)，在固定且實際核實的 CPython 3.12.14 reference environment，**重新訓練所有 RF／LightGBM inner candidates 及 outer final models**，核對超參數選擇、預測、數值模型與來源身分。另有不依賴原分裂搜尋 helper 的小型 exhaustive CART／Newton 數學 oracle，以及 CI／手動 Actions 證據。超出明確計算預算或環境錯配時會拒絕發 verified 報告；原五人研究與教授簡報快照保持不變。
 
+## 手刻樹模型效能與計算成本預檢
+
+新增 [RF／LightGBM 效能基準及成本規劃指南](docs/performance_benchmark.md)：以合成 dense／sparse／correlated／constant 資料，實測訓練、推論、模型 JSON、來源稽核、CPU／記憶體與不同執行緒成本；包含在同一 GitHub runner 上優化前後重複三次的比較，以及可手動執行的較大型 workload。另可對新 schema 2.0 features 使用明確的 `--dry-run` 與資源預算旗標，**在訓練前**檢查 nested CV 工作量，不會修改既有研究輸出。估算時間需要同機器實際校準，不能把 synthetic benchmark 誤認為 EEG 模型準確率或保證執行秒數。
+
 ## 相關資料與參考文獻
 
 研究的 [完整結果摘要](docs/final_results_summary.md)、[方法定義](docs/method_definition.md)、[分類原始結果](results/final_validation/final_validation_summary.csv) 與 [最終圖表](results/final_figures/) 可供進一步查閱。
