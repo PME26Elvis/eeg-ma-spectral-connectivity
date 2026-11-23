@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def run(out_dir):
     target = protect_output(out_dir)
     target.mkdir(parents=True, exist_ok=False)
-    source, config, plan, frame = create_exploratory_fixture(target / "synthetic")
+    source, config, plan, eligibility, frame = create_exploratory_fixture(target / "synthetic")
     output = target / "comparison"
     commands = []
 
@@ -34,16 +34,16 @@ def run(out_dir):
         return proc
 
     execute("draft-refusal", ["check", "--features", source,
-             "--config", config, "--plan", plan], 2)
+             "--config", config, "--plan", plan, "--eligibility", eligibility], 2)
     execute("preflight", ["check", "--features", source, "--config", config,
-                           "--plan", plan, "--allow-synthetic"])
+                           "--plan", plan, "--eligibility", eligibility, "--allow-synthetic"])
     execute("run", ["run", "--features", source, "--config", config,
-                    "--plan", plan, "--out-dir", output, "--allow-synthetic"])
+                    "--plan", plan, "--eligibility", eligibility, "--out-dir", output, "--allow-synthetic"])
     execute("verify", ["verify", "--report", output])
     earlier = {p.relative_to(output).as_posix(): sha256_file(p)
                for p in output.rglob("*") if p.is_file()}
     execute("no-overwrite", ["run", "--features", source, "--config", config,
-                             "--plan", plan, "--out-dir", output, "--allow-synthetic"], 2)
+                             "--plan", plan, "--eligibility", eligibility, "--out-dir", output, "--allow-synthetic"], 2)
     if earlier != {p.relative_to(output).as_posix(): sha256_file(p)
                    for p in output.rglob("*") if p.is_file()}:
         raise RuntimeError("Refusing overwrite changed the published report")
@@ -65,6 +65,7 @@ def run(out_dir):
         **verified, "schema_version": "eeg-exploratory-smoke-1",
         "n_human_participants": 0, "n_synthetic_sessions": 6, "n_epochs": len(frame),
         "classifiers_by_track": TRACKS,
+        "frozen_eligibility_sha256": sha256_file(eligibility),
         "scope": "SYNTHETIC engineering evidence, NOT human EEG research",
         "commands": commands, "output_bytes_sha256": {
             p.relative_to(output).as_posix(): sha256_file(p)

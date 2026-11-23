@@ -31,6 +31,7 @@ F track 在現有評估 CSV 中用帶有 <code>selection_method=all_declared_fea
 權威模板：[five_classifier_exploratory.plan.json](../configs/five_classifier_exploratory.plan.json)。預設為 <code>draft</code>／placeholder cohort，**不能直接執行**。必須由新研究操作者在取得模型結果前固定：
 
 - 新的 cohort 與 acquisition protocol ID；一個預先指定的 feature_set／comparisons；完整 S/F roster 與配對名單。
+- **獨立先固定的 eligibility CSV**（不可從最終 predictions 推導）列出完整 cohort 的所有預期 epochs，欄位順序為 `cohort_id,protocol_id,comparison,subject_id,session_id,epoch_id,y_true`。將該檔實際 bytes 的 SHA-256 填入 `plan.eligibility_sha256`；check/run/verify 會核對 eligibility vs features、每個格子的 predictions，缺整位 participant 或單一 epoch 均拒絕。此核對只能驗證已封存的 roster，真正的凍結時間和獨立性需由研究者提供外部事前證據。
 - 已通過 schema 2.0／raw_metadata QA 的來源，以及確認不是原五人 discovery 或曾見過結果的受試者。
 - 真實新研究標記為 <code>prospective_exploratory_frozen</code>，填入 <code>registration_evidence.frozen_at/reference/operator</code>；程式只驗證聲明格式、身份一致與檔案雜湊。**這不是實際倫理核准、資料未暴露或現場設備驗證的替代品**，仍須依 #23、既有 A/B 與院校規範完成。
 - 只有測試時可用 <code>synthetic_only</code>，而且必須明確傳入 <code>--allow-synthetic</code>。這一狀態永遠不代表完成真人驗證。
@@ -45,12 +46,14 @@ F track 在現有評估 CSV 中用帶有 <code>selection_method=all_declared_fea
 python scripts/25_compare_classifiers.py check \
   --features /path/to/new-schema2-features.csv \
   --config configs/lightgbm.json \
-  --plan /path/to/declared-exploratory-plan.json
+  --plan /path/to/declared-exploratory-plan.json \
+  --eligibility /path/to/frozen-eligibility.csv
 
 python scripts/25_compare_classifiers.py run \
   --features /path/to/new-schema2-features.csv \
   --config configs/lightgbm.json \
   --plan /path/to/frozen-exploratory-plan.json \
+  --eligibility /path/to/frozen-eligibility.csv \
   --out-dir outputs/exploratory/cohort-run-001
 
 python scripts/25_compare_classifiers.py verify \
@@ -67,7 +70,7 @@ python tests/run_five_classifier_exploratory_smoke.py \
 
 | 封存檔案 | 驗證功能 |
 | --- | --- |
-| <code>source_features.csv</code>、<code>analysis_config.json</code>、<code>plan.json</code> | 原始 bytes，cohort／protocol／特徵與分析政策 |
+| <code>source_features.csv</code>、<code>analysis_config.json</code>、<code>plan.json</code>、<code>eligibility_source.csv</code> | 原始 bytes，cohort／protocol／特徵與分析政策 |
 | <code>S/</code>、<code>F/</code> | 兩個完整的 #7 不可變 evaluation run，各有 held-out/inner splits、逐折結果、模型來源稽核 |
 | <code>eligible_epochs.csv</code>、<code>predictions.csv</code> | 事先固定 cohort／comparison／epoch，完整 model×comparison×epoch 覆蓋 |
 | <code>participant_results.csv</code>、<code>summary.csv</code> | TP／TN／FP／FN、每人 accuracy／BA／recalls、participant macro／SD 與獨立 pooled epoch metrics |

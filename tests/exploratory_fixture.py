@@ -5,7 +5,8 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-from eeg_ma.exploratory import ANALYSIS_ID, DEFAULT_PAIRS, PLAN_VERSION, TRACKS
+from eeg_ma.exploratory import ANALYSIS_ID, BARE_ELIGIBILITY, DEFAULT_PAIRS, PLAN_VERSION, TRACKS
+from eeg_ma.provenance import sha256_file
 from eeg_ma.extract import extract_all
 from eeg_ma.numerical_validation import fixture_definition, write_synthetic_raw
 from eeg_ma.schema import META_COLUMNS
@@ -24,6 +25,13 @@ def create_exploratory_fixture(root: Path):
     frame = frame[[*META_COLUMNS, *cols]].copy()
     features = root / "features.csv"
     frame.to_csv(features, index=False, encoding="utf-8", lineterminator="\n")
+    # Independently frozen eligible roster: it must exist before classification.
+    eligible = frame[["cohort_id", "protocol_id", "comparison", "subject_id",
+                      "session_id", "epoch_id", "class_label"]].rename(
+        columns={"class_label": "y_true"})
+    eligible = eligible[BARE_ELIGIBILITY].sort_values(BARE_ELIGIBILITY)
+    eligibility = root / "eligibility.csv"
+    eligible.to_csv(eligibility, index=False, encoding="utf-8", lineterminator="\n")
     cfg = deepcopy(definition["analysis"])
     cfg["classifiers"] = TRACKS["S"]
     cfg["n_jobs"] = 1
@@ -46,9 +54,10 @@ def create_exploratory_fixture(root: Path):
         "protocol_id": str(frame.protocol_id.iloc[0]),
         "comparisons": [item["name"] for item in cfg["comparisons"]],
         "feature_set": cfg["feature_set"], "tracks": TRACKS,
+        "eligibility_sha256": sha256_file(eligibility),
         "paired_comparisons": DEFAULT_PAIRS, "registration_evidence": None,
         "predeclared_scope": "descriptive_exploration_not_confirmatory",
     }
     plan_path = root / "plan.json"
     plan_path.write_text(json.dumps(plan, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-    return features, config, plan_path, frame
+    return features, config, plan_path, eligibility, frame
