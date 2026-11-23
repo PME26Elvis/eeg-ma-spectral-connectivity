@@ -349,6 +349,9 @@ def compare(args):
     target = json.loads((Path(args.candidate) / "summary.json").read_text())
     if base["host"] != target["host"] or base["preset"] != target["preset"]:
         raise ValueError("Comparisons must use the same host, environment, preset and input definitions")
+    if not (base.get("profiling_excluded_from_measured_repeats") is True
+            and target.get("profiling_excluded_from_measured_repeats") is True):
+        raise ValueError("Profiler-contaminated timing samples cannot enter a performance comparison")
     a, b = ({row["key"]: row for row in doc["cases"]} for doc in (base, target))
     if set(a) != set(b):
         raise ValueError("Benchmark matrix differs across baseline and candidate")
