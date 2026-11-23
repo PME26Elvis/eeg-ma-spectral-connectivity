@@ -290,6 +290,19 @@ def suite(args):
         writer = csv.DictWriter(stream, fieldnames=list(summaries[0]))
         writer.writeheader()
         writer.writerows(summaries)
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+    fig, ax = plt.subplots(figsize=(12, max(4, 0.30 * len(summaries) + 2)))
+    ordering = sorted(summaries, key=lambda x: x["key"])
+    ax.barh(range(len(ordering)), [row["fit_wall_median_s"] for row in ordering])
+    ax.set_yticks(range(len(ordering)), [row["key"] for row in ordering])
+    ax.invert_yaxis()
+    ax.set_xlabel("Median fit wall seconds (3 independent measured repeats)")
+    ax.set_title("Synthetic handwritten-tree fit benchmarks")
+    fig.tight_layout()
+    fig.savefig(out / "fit_medians.png", dpi=125)
+    plt.close(fig)
     with (out / "measurements.jsonl").open("w", encoding="utf-8") as stream:
         for row in observed:
             stream.write(canonical(row) + "\n")
@@ -337,6 +350,20 @@ def compare(args):
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+    fig, ax = plt.subplots(figsize=(12, max(4, .36 * len(rows) + 2)))
+    ax.barh(range(len(rows)), [row["median_improvement_pct"] for row in rows])
+    ax.axvline(0, color="gray", linewidth=.8)
+    ax.set_yticks(range(len(rows)), [row["key"] for row in rows])
+    ax.invert_yaxis()
+    ax.set_xlabel("Same-runner median fit time change (%) vs baseline")
+    ax.set_title("Synthetic workloads; no EEG inference")
+    fig.tight_layout()
+    fig.savefig(output.with_suffix(".png"), dpi=125)
+    plt.close(fig)
+
     print(json.dumps(result))
 
 
