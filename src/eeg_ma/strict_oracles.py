@@ -296,6 +296,10 @@ def run_tiny_oracle_canary():
          np.array([0, 0, 0, 0, 0, 0, 1, 0, 1, 1]), [1, 2, 1, 1, 3, 1, 2, 1, 1, 2]),
         ("constant_features", np.zeros((8, 2), dtype=float),
          np.array([0, 0, 1, 0, 1, 1, 0, 1]), None),
+        ("adjacent_representable_floats",
+         np.array([[np.nextafter(1., 0.), 0], [1., 0], [np.nextafter(1., 0.), 1],
+                   [1., 1], [np.nextafter(1., 0.), 2], [1., 2]], dtype=float),
+         np.array([0, 1, 0, 1, 0, 1]), None),
     ]
     for name, X, y, weights in datasets:
         model = HandcraftedRandomForestClassifier(
@@ -311,22 +315,30 @@ def run_tiny_oracle_canary():
         [0, 0, 0], [2, 2, 0], [1, 0, 2], [0, 2, 2],
     ], dtype=float)
     y = np.array([0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 0], dtype=int)
+    sparse = np.zeros((12, 4), dtype=float)
+    for i in range(len(sparse)):
+        sparse[i, i % 2] = 1 + i % 3
+        sparse[i, 2 + (i // 2) % 2] = 1 + (i // 3) % 2
+    sparse_labels = np.array([0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1], dtype=int)
     for name, kwargs in [
         ("bagging_regularized", {"lambda_l1": 0, "lambda_l2": 1.0}),
         ("bounded_newton_l1", {"lambda_l1": .05, "lambda_l2": .1, "max_delta_step": .3}),
         ("goss_efb", {"data_sample_strategy": "goss", "top_rate": .4,
                        "other_rate": .4, "enable_bundle": True}),
     ]:
+        xi, yi = (sparse, sparse_labels) if name == "goss_efb" else (X, y)
         params = {
             "n_estimators": 3, "num_leaves": 3, "max_depth": 3,
             "max_bin": 7, "min_data_in_leaf": 1,
             "learning_rate": .1, "random_state": 119, **kwargs,
         }
-        model = HandcraftedLightGBMClassifier(**params).fit(X, y)
-        check = verify_booster_exhaustive_tiny(model, X, y, max_rows=24,
+        model = HandcraftedLightGBMClassifier(**params).fit(xi, yi)
+        if name == "goss_efb" and model.bundle_layout_.n_bundles_ >= xi.shape[1]:
+            raise OracleMismatch("GOSS/EFB fixture did not actually compress any training features")
+        check = verify_booster_exhaustive_tiny(model, xi, yi, max_rows=24,
                                                max_features=5, max_nodes=64)
         cases.append({"name": name, "algorithm": "handcrafted_histogram_Newton",
-                      "proof": check})
+                      "proof": check, "n_feature_bundles": model.bundle_layout_.n_bundles_})
     return {
         "schema_version": "eeg-independent-tiny-oracles-1",
         "status": "verified_independent_tiny_oracles",
