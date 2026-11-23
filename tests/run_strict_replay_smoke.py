@@ -60,7 +60,7 @@ def run(source_root, target):
         ])
         if result["status"] != "verified_strict_train_replay":
             raise RuntimeError("Strict mode did not actually fit all models")
-        assert result["n_complete_refits"] == 15  # 3 outer × (2 candidate × 2 inner + final)
+        assert result["n_complete_refits"] == 30  # 3 outer × 2 learners × (2 candidates × 2 inner + final)
         assert result["preflight"]["models"] == ["RandomForest", "LightGBM"]
         assert len(result["models"]) == 6
         report["runs"][track] = {
