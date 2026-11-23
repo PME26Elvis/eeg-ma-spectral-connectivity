@@ -314,6 +314,10 @@ B 使用多 blocks、平衡 condition order，並匹配顯示與數字回應流�
 
 目前模板是 **DRAFT**；只有明示的 synthetic 測試或真實經驗證、預先固定的另行收案才能啟動。此能力不改寫原五人結果，亦不代表已完成任何新增的人體 EEG 分類比較。
 
+## 手刻分類器的嚴格訓練重播驗證
+
+在原本的 source-bound fast audit 之外，現在可使用 [strict training replay 操作與證據指南](docs/strict_replay.md)／[CLI](scripts/26_strict_verify.py)，在固定且實際核實的 CPython 3.12.14 reference environment，**重新訓練所有 RF／LightGBM inner candidates 及 outer final models**，核對超參數選擇、預測、數值模型與來源身分。另有不依賴原分裂搜尋 helper 的小型 exhaustive CART／Newton 數學 oracle，以及 CI／手動 Actions 證據。超出明確計算預算或環境錯配時會拒絕發 verified 報告；原五人研究與教授簡報快照保持不變。
+
 ## 相關資料與參考文獻
 
 研究的 [完整結果摘要](docs/final_results_summary.md)、[方法定義](docs/method_definition.md)、[分類原始結果](results/final_validation/final_validation_summary.csv) 與 [最終圖表](results/final_figures/) 可供進一步查閱。
