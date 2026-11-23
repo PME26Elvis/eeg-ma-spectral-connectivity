@@ -98,6 +98,20 @@ def test_draft_and_foreign_cohort_block_without_publication(synthetic_report, tm
     assert not output.exists()
 
 
+def test_frozen_feature_columns_reject_posthoc_drop_and_reorder(synthetic_report):
+    _, _, config, plan, eligibility, frame, _ = synthetic_report
+    cfg = json.loads(Path(config).read_text())
+    declared = json.loads(Path(plan).read_text())
+    frozen = _read_eligibility(eligibility)
+    wrong = deepcopy(declared)
+    wrong["ordered_features"] = list(reversed(wrong["ordered_features"]))
+    with pytest.raises(ExploratoryError, match="Frozen ordered feature candidates"):
+        _verify_plan(wrong, cfg, frame, frozen, allow_synthetic=True)
+    missing = frame.drop(columns=[declared["ordered_features"][0]])
+    with pytest.raises(ExploratoryError, match="Frozen ordered feature candidates"):
+        _verify_plan(declared, cfg, missing, frozen, allow_synthetic=True)
+
+
 def test_independent_roster_detects_missing_whole_participant_before_fitting(synthetic_report):
     _, _, config, plan, eligibility, frame, _ = synthetic_report
     cfg = json.loads(Path(config).read_text())

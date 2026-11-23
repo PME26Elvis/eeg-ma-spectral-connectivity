@@ -42,5 +42,6 @@
   ],
   "registration_evidence": null,
   "predeclared_scope": "descriptive_exploration_not_confirmatory",
-  "eligibility_sha256": null
+  "eligibility_sha256": null,
+  "ordered_features": []
 }

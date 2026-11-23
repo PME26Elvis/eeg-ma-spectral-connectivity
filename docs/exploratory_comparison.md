@@ -30,7 +30,7 @@ F track 在現有評估 CSV 中用帶有 <code>selection_method=all_declared_fea
 
 權威模板：[five_classifier_exploratory.plan.json](../configs/five_classifier_exploratory.plan.json)。預設為 <code>draft</code>／placeholder cohort，**不能直接執行**。必須由新研究操作者在取得模型結果前固定：
 
-- 新的 cohort 與 acquisition protocol ID；一個預先指定的 feature_set／comparisons；完整 S/F roster 與配對名單。
+- 新的 cohort 與 acquisition protocol ID；一個預先指定的 feature_set／comparisons；**ordered_features 精確且有序的候選欄位清單**；完整 S/F roster 與配對名單。不能只寫 `feature_set=all` 就允許後續依分數移除欄位。
 - **獨立先固定的 eligibility CSV**（不可從最終 predictions 推導）列出完整 cohort 的所有預期 epochs，欄位順序為 `cohort_id,protocol_id,comparison,subject_id,session_id,epoch_id,y_true`。將該檔實際 bytes 的 SHA-256 填入 `plan.eligibility_sha256`；check/run/verify 會核對 eligibility vs features、每個格子的 predictions，缺整位 participant 或單一 epoch 均拒絕。此核對只能驗證已封存的 roster，真正的凍結時間和獨立性需由研究者提供外部事前證據。
 - 已通過 schema 2.0／raw_metadata QA 的來源，以及確認不是原五人 discovery 或曾見過結果的受試者。
 - 真實新研究標記為 <code>prospective_exploratory_frozen</code>，填入 <code>registration_evidence.frozen_at/reference/operator</code>；程式只驗證聲明格式、身份一致與檔案雜湊。**這不是實際倫理核准、資料未暴露或現場設備驗證的替代品**，仍須依 #23、既有 A/B 與院校規範完成。

@@ -108,7 +108,7 @@ def _read_eligibility(path: Path) -> pd.DataFrame:
 def _verify_plan(plan: dict, cfg: dict, features: pd.DataFrame,
                  eligibility: pd.DataFrame, *, allow_synthetic: bool):
     fields = {"schema_version", "analysis_id", "status", "cohort_id", "protocol_id",
-              "comparisons", "feature_set", "tracks", "paired_comparisons",
+              "comparisons", "feature_set", "ordered_features", "tracks", "paired_comparisons",
               "registration_evidence", "predeclared_scope", "eligibility_sha256"}
     if not isinstance(plan, dict) or set(plan) != fields:
         raise ExploratoryError("Exploratory plan has missing or unknown fields")
@@ -138,6 +138,13 @@ def _verify_plan(plan: dict, cfg: dict, features: pd.DataFrame,
         raise ExploratoryError("The complete predeclared comparison matrix must match the input data/config")
     if plan["feature_set"] != cfg.get("feature_set", "all"):
         raise ExploratoryError("Declared feature set differs from the analysis configuration")
+    expected_order = feature_columns(features, plan["feature_set"])
+    declared_order = plan["ordered_features"]
+    if (not isinstance(declared_order, list) or not declared_order
+            or any(not _is_literal(name) for name in declared_order)
+            or len(set(declared_order)) != len(declared_order)
+            or declared_order != expected_order):
+        raise ExploratoryError("Frozen ordered feature candidates are missing, reordered, or different from source")
     if (not isinstance(plan["eligibility_sha256"], str)
             or re.fullmatch(r"[0-9a-f]{64}", plan["eligibility_sha256"]) is None):
         raise ExploratoryError("A frozen SHA-256 for the independent eligibility manifest is required")

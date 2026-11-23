@@ -53,7 +53,7 @@ def create_exploratory_fixture(root: Path):
         "status": "synthetic_only", "cohort_id": str(frame.cohort_id.iloc[0]),
         "protocol_id": str(frame.protocol_id.iloc[0]),
         "comparisons": [item["name"] for item in cfg["comparisons"]],
-        "feature_set": cfg["feature_set"], "tracks": TRACKS,
+        "feature_set": cfg["feature_set"], "ordered_features": cols, "tracks": TRACKS,
         "eligibility_sha256": sha256_file(eligibility),
         "paired_comparisons": DEFAULT_PAIRS, "registration_evidence": None,
         "predeclared_scope": "descriptive_exploration_not_confirmatory",
