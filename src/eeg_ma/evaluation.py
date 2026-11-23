@@ -12,7 +12,7 @@ from sklearn.model_selection import LeaveOneGroupOut, StratifiedKFold
 from .extract import feature_columns
 from .classifier_config import classifier_policy, resolve_classifiers
 from .models import fit_lightgbm, fit_random_forest, kfda_grid_search, lda_pipeline, svm_grid_search
-from .sfs import forward_select_lda
+from .sfs import SFSResult, forward_select_lda
 
 
 STABLE_SPLIT_POLICY = "stable_epoch_id_v1"
@@ -43,6 +43,12 @@ def evaluation_contract(scope: str, *, stable_epoch_ids: bool = True, cfg: dict 
     if cfg is not None and "classifiers" in cfg:
         result["schema_version"] = "eeg-evaluation-contract-2"
         result["classifier_policy"] = classifier_policy(cfg)
+        if result["classifier_policy"]["feature_selection"] == "all_declared_features":
+            result["schema_version"] = "eeg-evaluation-contract-3"
+            result["selection_diagnostics"] = {
+                "sfs_inner_accuracy": "not_performed_all_declared_features",
+                "grid_inner_accuracy": "inner_model_search_only_not_selection_independent",
+            }
     return result
 
 
@@ -50,6 +56,31 @@ def _write_evaluation_contract(out_dir: Path, scope: str, features: pd.DataFrame
     value = evaluation_contract(scope, stable_epoch_ids="epoch_id" in features, cfg=cfg)
     (out_dir / "evaluation_contract.json").write_text(
         json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+
+def _select_training_features(Xtr, ytr, fcols, inner_splits, cfg):
+    """Opt-in full-feature track; no SFS or label-based feature selection.
+
+    The legacy CSV named *_sfs_path.csv carries a versioned inclusion trace
+    for this track, with null CV/improvement diagnostics (never fake scores).
+    """
+    if cfg.get("feature_selection_policy") == "all_declared_features":
+        cols = list(fcols)
+        return SFSResult(
+            selected_indices=list(range(len(cols))), selected_names=cols,
+            best_score=float("nan"),
+            path=pd.DataFrame([
+                {"step": i + 1, "candidate_index": i, "candidate_name": name,
+                 "cv_accuracy": float("nan"), "improvement": float("nan"),
+                 "selection_method": "all_declared_features"}
+                for i, name in enumerate(cols)
+            ]),
+        )
+    return forward_select_lda(
+        Xtr, ytr, fcols, inner_splits,
+        max_features=cfg["sfs"].get("max_features"),
+        min_improvement=float(cfg["sfs"].get("min_improvement", 0.0)),
+    )
 
 
 def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -84,11 +115,7 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
                 Xtr, Xte = X[train_idx], X[test_idx]
                 ytr, yte = y[train_idx], y[test_idx]
 
-                sfs = forward_select_lda(
-                    Xtr, ytr, fcols, inner_splits,
-                    max_features=cfg["sfs"].get("max_features"),
-                    min_improvement=float(cfg["sfs"].get("min_improvement", 0.0)),
-                )
+                sfs = _select_training_features(Xtr, ytr, fcols, inner_splits, cfg)
                 sel = sfs.selected_indices
                 Xtr_s, Xte_s = Xtr[:, sel], Xte[:, sel]
 
@@ -181,11 +208,7 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
             gtr = groups[train_idx]
             held_out = str(np.unique(groups[test_idx])[0])
 
-            sfs = forward_select_lda(
-                Xtr, ytr, fcols, inner_splits,
-                max_features=cfg["sfs"].get("max_features"),
-                min_improvement=float(cfg["sfs"].get("min_improvement", 0.0)),
-            )
+            sfs = _select_training_features(Xtr, ytr, fcols, inner_splits, cfg)
             sel = sfs.selected_indices
             Xtr_s, Xte_s = Xtr[:, sel], Xte[:, sel]
 
@@ -289,7 +312,8 @@ def _validate_evaluation_input(features: pd.DataFrame, cfg: Dict, *, scope=None)
                         if any(np.unique(outer_y[train]).tolist() != [0, 1] for train, _ in inner):
                             raise ValueError("Every LightGBM inner-training partition must contain both classes")
         cap = cfg["sfs"].get("max_features")
-        available = min(len(fcols), int(cap)) if cap is not None else len(fcols)
+        available = (len(fcols) if policy["feature_selection"] == "all_declared_features"
+                     else min(len(fcols), int(cap)) if cap is not None else len(fcols))
         if policy["random_forest"] is not None:
             from .classifier_config import forest_constructor_parameters
             from .random_forest import HandcraftedRandomForestClassifier

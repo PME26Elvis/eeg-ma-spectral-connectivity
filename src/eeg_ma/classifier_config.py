@@ -159,6 +159,14 @@ def classifier_policy(cfg: dict) -> dict:
     set: all tree counts are selected inside the existing inner partitions.
     """
     result = _forest_classifier_policy(cfg)
+    feature_mode = cfg.get("feature_selection_policy", "shared_training_only_lda_sfs")
+    if feature_mode not in {"shared_training_only_lda_sfs", "all_declared_features"}:
+        raise ValueError("Unknown feature_selection_policy")
+    if feature_mode == "all_declared_features":
+        if result["classifiers"] != ["RandomForest", "LightGBM"]:
+            raise ValueError("all_declared_features is only supported for the explicit RF/LightGBM exploratory track")
+        result["feature_selection"] = feature_mode
+        result["random_forest"]["score_scope"] = "inner_model_search_without_sfs_not_independent_performance"
     if "LightGBM" not in result["classifiers"]:
         return result
     from .lightgbm import ALGORITHM_VERSION, HandcraftedLightGBMClassifier
@@ -217,6 +225,9 @@ def classifier_policy(cfg: dict) -> dict:
         "seed_policy": "sha256_lightgbm_master_scope_comparison_subject_outer_stage_inner_v1",
         "early_stopping_policy": "disabled_in_integrated_cv_n_estimators_selected_by_inner_search",
     }
+    if feature_mode == "all_declared_features":
+        result["schema_version"] = "eeg-classifier-policy-3"
+        result["lightgbm"]["score_scope"] = "inner_model_search_without_sfs_not_independent_performance"
     try:
         _canonical(result)
     except (TypeError, ValueError) as exc:
