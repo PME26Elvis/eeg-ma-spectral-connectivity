@@ -201,6 +201,8 @@ def suite(args):
     for rows, features, kind in PRESETS[args.preset]:
         if args.rows_only is not None and rows != args.rows_only:
             continue
+        if args.case_only and f"r{rows}-f{features}-{kind}" not in args.case_only:
+            continue
         name = f"r{rows}-f{features}-{kind}"
         source = inputs / f"{name}.npz"
         if not source.is_file():
@@ -386,6 +388,7 @@ def main():
     run.add_argument("--warmups", type=int, default=1)
     run.add_argument("--timeout", type=float, default=180)
     run.add_argument("--rows-only", type=int, choices=[300, 600, 3000, 6000])
+    run.add_argument("--case-only", nargs="+", help="Restrict to listed prespecified workload IDs")
     run.add_argument("--profile", action="store_true")
     comp = sub.add_parser("compare")
     comp.add_argument("--baseline", required=True)
