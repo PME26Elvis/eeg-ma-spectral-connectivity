@@ -1,0 +1,47 @@
+{
+  "schema_version": "eeg-exploratory-five-classifier-plan-1",
+  "analysis_id": "prospective_five_classifier_exploratory_lopo",
+  "status": "draft",
+  "cohort_id": "REPLACE_WITH_NEW_UNSEEN_COHORT",
+  "protocol_id": "REPLACE_WITH_ACQUISITION_PROTOCOL_ID",
+  "comparisons": [
+    "rest1_vs_type1",
+    "rest2_vs_type2"
+  ],
+  "feature_set": "all",
+  "tracks": {
+    "S": [
+      "LDA",
+      "RBF-SVM",
+      "KFDA",
+      "RandomForest",
+      "LightGBM"
+    ],
+    "F": [
+      "RandomForest",
+      "LightGBM"
+    ]
+  },
+  "paired_comparisons": [
+    {
+      "reference": "S:LDA",
+      "target": "S:RandomForest"
+    },
+    {
+      "reference": "S:LDA",
+      "target": "S:LightGBM"
+    },
+    {
+      "reference": "S:RandomForest",
+      "target": "F:RandomForest"
+    },
+    {
+      "reference": "S:LightGBM",
+      "target": "F:LightGBM"
+    }
+  ],
+  "registration_evidence": null,
+  "predeclared_scope": "descriptive_exploration_not_confirmatory",
+  "eligibility_sha256": null,
+  "ordered_features": []
+}

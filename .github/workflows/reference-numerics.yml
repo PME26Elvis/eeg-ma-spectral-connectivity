@@ -95,6 +95,13 @@ jobs:
         run: .venv-reference/bin/python tests/run_phase_controls_smoke.py --out-dir outputs/reference/phase-controls
       - name: Verify handcrafted forest and four-classifier CLIs on synthetic data
         run: .venv-reference/bin/python tests/run_random_forest_smoke.py --out-dir outputs/reference/random-forest
+      - name: Verify handwritten histogram boosting and five-classifier CLIs
+        run: .venv-reference/bin/python tests/run_lightgbm_smoke.py --out-dir outputs/reference/lightgbm
+      - name: Verify default-branch LightGBM capability
+        run: |
+          .venv-reference/bin/python -c 'from eeg_ma.lightgbm import HandcraftedLightGBMClassifier; from eeg_ma.classifier_config import classifier_policy; import json; assert "LightGBM" in classifier_policy(json.load(open("configs/lightgbm.json")))["classifiers"]; HandcraftedLightGBMClassifier(n_estimators=2).validate_parameters()'
+      - name: Verify separate exploratory S/F participant-level report
+        run: .venv-reference/bin/python tests/run_five_classifier_exploratory_smoke.py --out-dir outputs/reference/five-classifier-exploratory
       - name: Retain reference evidence and failure diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

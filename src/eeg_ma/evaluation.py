@@ -11,8 +11,8 @@ from sklearn.model_selection import LeaveOneGroupOut, StratifiedKFold
 
 from .extract import feature_columns
 from .classifier_config import classifier_policy, resolve_classifiers
-from .models import fit_random_forest, kfda_grid_search, lda_pipeline, svm_grid_search
-from .sfs import forward_select_lda
+from .models import fit_lightgbm, fit_random_forest, kfda_grid_search, lda_pipeline, svm_grid_search
+from .sfs import SFSResult, forward_select_lda
 
 
 STABLE_SPLIT_POLICY = "stable_epoch_id_v1"
@@ -43,6 +43,12 @@ def evaluation_contract(scope: str, *, stable_epoch_ids: bool = True, cfg: dict 
     if cfg is not None and "classifiers" in cfg:
         result["schema_version"] = "eeg-evaluation-contract-2"
         result["classifier_policy"] = classifier_policy(cfg)
+        if result["classifier_policy"]["feature_selection"] == "all_declared_features":
+            result["schema_version"] = "eeg-evaluation-contract-3"
+            result["selection_diagnostics"] = {
+                "sfs_inner_accuracy": "not_performed_all_declared_features",
+                "grid_inner_accuracy": "inner_model_search_only_not_selection_independent",
+            }
     return result
 
 
@@ -50,6 +56,31 @@ def _write_evaluation_contract(out_dir: Path, scope: str, features: pd.DataFrame
     value = evaluation_contract(scope, stable_epoch_ids="epoch_id" in features, cfg=cfg)
     (out_dir / "evaluation_contract.json").write_text(
         json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+
+def _select_training_features(Xtr, ytr, fcols, inner_splits, cfg):
+    """Opt-in full-feature track; no SFS or label-based feature selection.
+
+    The legacy CSV named *_sfs_path.csv carries a versioned inclusion trace
+    for this track, with null CV/improvement diagnostics (never fake scores).
+    """
+    if cfg.get("feature_selection_policy") == "all_declared_features":
+        cols = list(fcols)
+        return SFSResult(
+            selected_indices=list(range(len(cols))), selected_names=cols,
+            best_score=float("nan"),
+            path=pd.DataFrame([
+                {"step": i + 1, "candidate_index": i, "candidate_name": name,
+                 "cv_accuracy": float("nan"), "improvement": float("nan"),
+                 "selection_method": "all_declared_features"}
+                for i, name in enumerate(cols)
+            ]),
+        )
+    return forward_select_lda(
+        Xtr, ytr, fcols, inner_splits,
+        max_features=cfg["sfs"].get("max_features"),
+        min_improvement=float(cfg["sfs"].get("min_improvement", 0.0)),
+    )
 
 
 def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -70,6 +101,7 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     pred_rows: List[Dict[str, object]] = []
     sfs_rows: List[Dict[str, object]] = []
     rf_audits = []
+    lightgbm_audits = []
 
     for comparison in sorted(features["comparison"].unique()):
         comp_df = features.loc[features["comparison"] == comparison].copy()
@@ -83,11 +115,7 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
                 Xtr, Xte = X[train_idx], X[test_idx]
                 ytr, yte = y[train_idx], y[test_idx]
 
-                sfs = forward_select_lda(
-                    Xtr, ytr, fcols, inner_splits,
-                    max_features=cfg["sfs"].get("max_features"),
-                    min_improvement=float(cfg["sfs"].get("min_improvement", 0.0)),
-                )
+                sfs = _select_training_features(Xtr, ytr, fcols, inner_splits, cfg)
                 sel = sfs.selected_indices
                 Xtr_s, Xte_s = Xtr[:, sel], Xte[:, sel]
 
@@ -104,13 +132,16 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
 
                 context = {"scope": "intra", "comparison": str(comparison),
                            "subject": str(subject), "outer_fold": outer_fold}
-                models, rf_audit = _fit_classifiers(Xtr_s, ytr, cfg, inner_splits, context=context)
+                models, rf_audit, lightgbm_audit = _fit_classifiers(Xtr_s, ytr, cfg, inner_splits, context=context)
 
                 for model_name, model, best_params, inner_score in models:
                     pred = model.predict(Xte_s)
                     if model_name == "RandomForest":
                         rf_audits.append(_rf_outer_record(rf_audit, df, train_idx, test_idx,
                                                          sfs.selected_names, model, Xte_s, pred))
+                    elif model_name == "LightGBM":
+                        lightgbm_audits.append(_lightgbm_outer_record(lightgbm_audit, df, train_idx, test_idx,
+                                                                    sfs.selected_names, model, Xte_s, pred))
                     acc = float(accuracy_score(yte, pred))
                     fold_rows.append({
                         "subject_id": subject,
@@ -145,6 +176,7 @@ def run_intra_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     _write_intra_summaries(folds, preds, out_dir)
     _write_feature_frequency(sfs_path, out_dir / "intra_feature_frequency.csv", mode="intra")
     _write_rf_evidence(out_dir, "intra", features, cfg, rf_audits)
+    _write_lightgbm_evidence(out_dir, "intra", features, cfg, lightgbm_audits)
     _write_evaluation_contract(out_dir, "intra", features, cfg)
     return folds, preds
 
@@ -159,6 +191,7 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     pred_rows: List[Dict[str, object]] = []
     sfs_rows: List[Dict[str, object]] = []
     rf_audits = []
+    lightgbm_audits = []
 
     for comparison in sorted(features["comparison"].unique()):
         df = features.loc[features["comparison"] == comparison].reset_index(drop=True)
@@ -175,11 +208,7 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
             gtr = groups[train_idx]
             held_out = str(np.unique(groups[test_idx])[0])
 
-            sfs = forward_select_lda(
-                Xtr, ytr, fcols, inner_splits,
-                max_features=cfg["sfs"].get("max_features"),
-                min_improvement=float(cfg["sfs"].get("min_improvement", 0.0)),
-            )
+            sfs = _select_training_features(Xtr, ytr, fcols, inner_splits, cfg)
             sel = sfs.selected_indices
             Xtr_s, Xte_s = Xtr[:, sel], Xte[:, sel]
 
@@ -196,14 +225,17 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
 
             context = {"scope": "inter", "comparison": str(comparison),
                        "subject": held_out, "outer_fold": outer_fold}
-            models, rf_audit = _fit_classifiers(Xtr_s, ytr, cfg, inner_splits,
-                                              context=context, groups=gtr)
+            models, rf_audit, lightgbm_audit = _fit_classifiers(Xtr_s, ytr, cfg, inner_splits,
+                                                             context=context, groups=gtr)
 
             for model_name, model, best_params, inner_score in models:
                 pred = model.predict(Xte_s)
                 if model_name == "RandomForest":
                     rf_audits.append(_rf_outer_record(rf_audit, df, train_idx, test_idx,
                                                      sfs.selected_names, model, Xte_s, pred))
+                elif model_name == "LightGBM":
+                    lightgbm_audits.append(_lightgbm_outer_record(lightgbm_audit, df, train_idx, test_idx,
+                                                                sfs.selected_names, model, Xte_s, pred))
                 acc = float(accuracy_score(yte, pred))
                 fold_rows.append({
                     "held_out_subject": held_out,
@@ -239,6 +271,7 @@ def run_inter_subject(features: pd.DataFrame, cfg: Dict, out_dir: str | Path) ->
     _write_inter_summaries(folds, preds, out_dir)
     _write_feature_frequency(sfs_path, out_dir / "inter_feature_frequency.csv", mode="inter")
     _write_rf_evidence(out_dir, "inter", features, cfg, rf_audits)
+    _write_lightgbm_evidence(out_dir, "inter", features, cfg, lightgbm_audits)
     _write_evaluation_contract(out_dir, "inter", features, cfg)
     return folds, preds
 
@@ -266,21 +299,33 @@ def _validate_evaluation_input(features: pd.DataFrame, cfg: Dict, *, scope=None)
     fcols = feature_columns(features, str(cfg.get("feature_set", "all")))
     if not np.isfinite(features[fcols].to_numpy(dtype=float)).all():
         raise ValueError("Evaluation features contain NaN or Inf")
-    if policy["random_forest"] is not None and scope is not None:
-        from .classifier_config import forest_constructor_parameters
-        from .random_forest import HandcraftedRandomForestClassifier
+    if (policy["random_forest"] is not None or policy.get("lightgbm") is not None) and scope is not None:
         sizes = []
         for _, comparison in features.groupby("comparison", sort=True):
             groups = ([part.reset_index(drop=True) for _, part in comparison.groupby("subject_id", sort=True)]
                       if scope == "intra" else [comparison.reset_index(drop=True)])
             for frame in groups:
-                for _, _, _, inner in _evaluation_indices(frame, cfg, scope):
+                for _, outer_train, _, inner in _evaluation_indices(frame, cfg, scope):
                     sizes.extend(len(train) for train, _ in inner)
+                    if policy.get("lightgbm") is not None:
+                        outer_y = frame["class_label"].to_numpy(dtype=int)[outer_train]
+                        if any(np.unique(outer_y[train]).tolist() != [0, 1] for train, _ in inner):
+                            raise ValueError("Every LightGBM inner-training partition must contain both classes")
         cap = cfg["sfs"].get("max_features")
-        available = min(len(fcols), int(cap)) if cap is not None else len(fcols)
-        for candidate in policy["random_forest"]["candidates"]:
-            HandcraftedRandomForestClassifier(**forest_constructor_parameters(candidate)).validate_parameters(
-                n_features=available, n_samples=min(sizes))
+        available = (len(fcols) if policy["feature_selection"] == "all_declared_features"
+                     else min(len(fcols), int(cap)) if cap is not None else len(fcols))
+        if policy["random_forest"] is not None:
+            from .classifier_config import forest_constructor_parameters
+            from .random_forest import HandcraftedRandomForestClassifier
+            for candidate in policy["random_forest"]["candidates"]:
+                HandcraftedRandomForestClassifier(**forest_constructor_parameters(candidate)).validate_parameters(
+                    n_features=available, n_samples=min(sizes))
+        if policy.get("lightgbm") is not None:
+            from .classifier_config import lightgbm_constructor_parameters
+            from .lightgbm import HandcraftedLightGBMClassifier
+            for candidate in policy["lightgbm"]["candidates"]:
+                HandcraftedLightGBMClassifier(**lightgbm_constructor_parameters(candidate)).validate_parameters(
+                    n_features=available, n_samples=min(sizes))
     return features
 
 
@@ -301,7 +346,7 @@ def _prediction_metadata(row: pd.Series) -> Dict[str, object]:
 
 
 def _fit_classifiers(Xtr, ytr, cfg, inner_splits, *, context, groups=None):
-    models, rf_audit = [], None
+    models, rf_audit, lightgbm_audit = [], None, None
     for name in resolve_classifiers(cfg):
         if name == "LDA":
             models.append((name, lda_pipeline().fit(Xtr, ytr), {}, np.nan))
@@ -311,11 +356,15 @@ def _fit_classifiers(Xtr, ytr, cfg, inner_splits, *, context, groups=None):
         elif name == "KFDA":
             search = kfda_grid_search(cfg, inner_splits).fit(Xtr, ytr)
             models.append((name, search.best_estimator_, search.best_params_, float(search.best_score_)))
-        else:
+        elif name == "RandomForest":
             search = fit_random_forest(cfg, Xtr, ytr, inner_splits, context=context, groups=groups)
             models.append((name, search.model, search.best_params, search.best_score))
             rf_audit = search.audit
-    return models, rf_audit
+        elif name == "LightGBM":
+            search = fit_lightgbm(cfg, Xtr, ytr, inner_splits, context=context, groups=groups)
+            models.append((name, search.model, search.best_params, search.best_score))
+            lightgbm_audit = search.audit
+    return models, rf_audit, lightgbm_audit
 
 
 def _rf_outer_record(audit, frame, train, test, selected_names, model, Xtest, prediction):
@@ -345,6 +394,25 @@ def _write_rf_evidence(out_dir, scope, features, cfg, records):
              "verification_scope": "source_bound_outer_model_prediction_replay_and_inner_selection_record_consistency_not_inner_refit",
              "folds": records}
     (out_dir / "random_forest_audit.json").write_text(
+        json.dumps(audit, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+
+
+def _lightgbm_outer_record(audit, frame, train, test, selected_names, model, Xtest, prediction):
+    return {**_rf_outer_record(audit, frame, train, test, selected_names, model, Xtest, prediction),
+            "test_raw_scores": model.decision_function(Xtest).tolist()}
+
+
+def _write_lightgbm_evidence(out_dir, scope, features, cfg, records):
+    if "LightGBM" not in resolve_classifiers(cfg):
+        return
+    from .lightgbm_audit import VERIFICATION_SCOPE
+    from .provenance import sha256_file
+    source = out_dir / "lightgbm_inputs.csv"
+    features.to_csv(source, index=False, encoding="utf-8", lineterminator="\n")
+    audit = {"schema_version": "eeg-lightgbm-cv-1", "scope": scope,
+             "classifier_policy": classifier_policy(cfg), "input_table_sha256": sha256_file(source),
+             "verification_scope": VERIFICATION_SCOPE, "folds": records}
+    (out_dir / "lightgbm_audit.json").write_text(
         json.dumps(audit, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 

@@ -522,7 +522,15 @@ def validate_evaluation_outputs(root: Path, identity: dict) -> None:
         sfs["accepted"] = sfs["accepted"].astype(str).str.lower() == "true"
         if set(sfs["analysis"]) != {scope}:
             raise ProvenanceError("SFS analysis scope mismatch")
-        if not sfs["cv_accuracy"].between(0, 1).all():
+        all_features = policy["feature_selection"] == "all_declared_features"
+        if all_features:
+            if ("selection_method" not in sfs or
+                    set(sfs["selection_method"]) != {"all_declared_features"} or
+                    not sfs["cv_accuracy"].isna().all() or
+                    not sfs["improvement"].isna().all() or
+                    not folds["sfs_inner_accuracy"].isna().all()):
+                raise ProvenanceError("Full-feature track must declare no SFS and null SFS diagnostics")
+        elif not sfs["cv_accuracy"].between(0, 1).all():
             raise ProvenanceError("SFS accuracy outside [0,1]")
         if set(sfs["candidate_name"]) - set(allowed):
             raise ProvenanceError("Unknown SFS candidate")
@@ -544,9 +552,13 @@ def validate_evaluation_outputs(root: Path, identity: dict) -> None:
             selected = path.loc[path.accepted, "candidate_name"].tolist()
             if not selected or len(set(selected)) != len(selected):
                 raise ProvenanceError("Invalid selected features")
-            cap = identity["config"]["sfs"].get("max_features")
-            if cap is not None and len(selected) > int(cap):
-                raise ProvenanceError("Selected features exceed configured SFS cap")
+            if all_features:
+                if selected != list(allowed) or not path["accepted"].all():
+                    raise ProvenanceError("Full-feature track must retain every feature in the declared order")
+            else:
+                cap = identity["config"]["sfs"].get("max_features")
+                if cap is not None and len(selected) > int(cap):
+                    raise ProvenanceError("Selected features exceed configured SFS cap")
             for _, fold in folds.loc[mask].iterrows():
                 if str(fold.selected_features).split(";") != selected or int(fold.n_selected_features) != len(selected):
                     raise ProvenanceError("Fold selected features disagree with SFS")
@@ -581,6 +593,15 @@ def validate_evaluation_outputs(root: Path, identity: dict) -> None:
                 raise ProvenanceError(f"Invalid RandomForest evidence: {exc}") from exc
         elif any(path.exists() for path in evidence_files):
             raise ProvenanceError("Unexpected RandomForest evidence for an undeclared classifier")
+        lightgbm_evidence = [folder / "lightgbm_inputs.csv", folder / "lightgbm_audit.json"]
+        if "LightGBM" in classifiers:
+            try:
+                from .lightgbm_audit import validate_lightgbm_evidence
+                validate_lightgbm_evidence(folder, scope, identity, folds, preds)
+            except (ValueError, TypeError, KeyError, IndexError, AttributeError, OverflowError) as exc:
+                raise ProvenanceError(f"Invalid LightGBM evidence: {exc}") from exc
+        elif any(path.exists() for path in lightgbm_evidence):
+            raise ProvenanceError("Unexpected LightGBM evidence for an undeclared classifier")
     if _read_json(root / "config_snapshot.json") != identity["config"]:
         raise ProvenanceError("Config snapshot disagrees with run identity")
     if _read_json(root / "split_manifest.json") != identity["splits"]:

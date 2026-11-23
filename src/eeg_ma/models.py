@@ -90,7 +90,7 @@ class RandomForestSearchResult:
     audit: dict
 
 
-def _forest_splits(cv_splits, n_samples: int, *, groups=None):
+def _forest_splits(cv_splits, n_samples: int, *, groups=None, label="RF"):
     """No dropped validation rows, overlaps, duplicate indices, or foreign rows."""
     parsed = []
     for train, test in cv_splits:
@@ -100,16 +100,16 @@ def _forest_splits(cv_splits, n_samples: int, *, groups=None):
             if (indices.ndim != 1 or not len(indices) or indices.dtype.kind not in "iu"
                     or len(np.unique(indices)) != len(indices)
                     or np.any(indices < 0) or np.any(indices >= n_samples)):
-                raise ValueError("RF inner split needs unique, nonempty in-range integer indices")
+                raise ValueError(f"{label} inner split needs unique, nonempty in-range integer indices")
             pair.append(indices.astype(np.int64, copy=True))
         a, b = pair
         if np.intersect1d(a, b).size or len(a) + len(b) != n_samples:
-            raise ValueError("RF inner train/test split must disjointly partition outer training rows")
+            raise ValueError(f"{label} inner train/test split must disjointly partition outer training rows")
         if groups is not None and (set(groups[a]) & set(groups[b]) or len(set(groups[b])) != 1):
-            raise ValueError("RF inner split must hold out exactly one whole participant")
+            raise ValueError(f"{label} inner split must hold out exactly one whole participant")
         parsed.append((a, b))
     if not parsed or sorted(np.concatenate([b for _, b in parsed]).tolist()) != list(range(n_samples)):
-        raise ValueError("RF inner validation must cover each outer-training row exactly once")
+        raise ValueError(f"{label} inner validation must cover each outer-training row exactly once")
     return parsed
 
 
@@ -190,3 +190,89 @@ def fit_random_forest(cfg: Dict, X, y, cv_splits, *, context: dict, groups=None)
              "feature_importance_scope": "training_impurity_decrease_not_causal_or_test_permutation_importance",
              "oob": oob, "model": final.to_dict()}
     return RandomForestSearchResult(final, chosen, best_score, audit)
+
+
+def lightgbm_seed(master_seed: int, context: dict, stage: str, inner_fold: int | None = None) -> int:
+    """Independent boosting streams indexed by immutable CV membership."""
+    # Retain the exact established identity validation, but use a separate
+    # domain so a forest and booster cannot accidentally share a random stream.
+    random_forest_seed(master_seed, context, stage, inner_fold)
+    value = {"version": "lightgbm-cv-seed-1", "master_seed": master_seed,
+             **context, "stage": stage, "inner_fold": inner_fold}
+    data = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    return int.from_bytes(sha256(data.encode("utf-8")).digest()[:4], "big")
+
+
+@dataclass(frozen=True)
+class LightGBMSearchResult:
+    model: object
+    best_params: dict
+    best_score: float
+    audit: dict
+
+
+def fit_lightgbm(cfg: Dict, X, y, cv_splits, *, context: dict, groups=None) -> LightGBMSearchResult:
+    """Handwritten binary boosting search on the declared inner folds only.
+
+    Feature selection has already used these same training partitions, so
+    their accuracies are selection diagnostics.  Each fit constructs its own
+    training-only bins and bundles.  There is no eval_set or early stopping in
+    this path; the selected candidate is refit on all outer-training rows.
+    """
+    from .classifier_config import classifier_policy, lightgbm_constructor_parameters
+    from .lightgbm import ALGORITHM_VERSION, HandcraftedLightGBMClassifier
+    policy = classifier_policy(cfg).get("lightgbm")
+    if policy is None:
+        raise ValueError("LightGBM must be explicitly selected")
+    master = policy["parameters"]["random_state"]
+    lightgbm_seed(master, context, "refit")
+    X, y = np.asarray(X, dtype=np.float64), np.asarray(y)
+    if (X.ndim != 2 or not X.shape[0] or not X.shape[1] or not np.isfinite(X).all()
+            or y.ndim != 1 or len(y) != len(X) or not np.isin(y, [0, 1]).all()):
+        raise ValueError("LightGBM search requires finite selected features and corresponding binary labels")
+    if groups is not None:
+        groups = np.asarray(groups)
+        if groups.ndim != 1 or len(groups) != len(y):
+            raise ValueError("LightGBM inner participant groups must match outer-training rows")
+    if context["scope"] == "inter" and groups is None:
+        raise ValueError("Inter-participant LightGBM search requires explicit training groups")
+    splits = _forest_splits(cv_splits, len(y), groups=groups, label="LightGBM")
+    candidates = policy["candidates"]
+    for train, _ in splits:
+        if np.unique(y[train]).tolist() != [0, 1]:
+            raise ValueError("Every LightGBM inner-training partition must contain both classes")
+    for candidate in candidates:
+        model = HandcraftedLightGBMClassifier(**lightgbm_constructor_parameters(candidate))
+        for train, _ in splits:
+            model.validate_parameters(n_features=X.shape[1], n_samples=len(train))
+    records = []
+    best_index, best_exact_score = -1, None
+    for index, parameters in enumerate(candidates):
+        folds, exact_scores = [], []
+        for inner_fold, (train, test) in enumerate(splits, start=1):
+            seed = lightgbm_seed(master, context, "inner", inner_fold)
+            fit_params = {**lightgbm_constructor_parameters(parameters), "random_state": seed}
+            model = HandcraftedLightGBMClassifier(**fit_params).fit(X[train], y[train])
+            prediction = model.predict(X[test])
+            exact_accuracy = Fraction(int(np.count_nonzero(prediction == y[test])), len(test))
+            exact_scores.append(exact_accuracy)
+            folds.append({"inner_fold": inner_fold, "seed": seed,
+                "train_indices": train.tolist(), "test_indices": test.tolist(),
+                "classes": model.classes_.tolist(), "predictions": prediction.tolist(),
+                "probabilities": model.predict_proba(X[test]).tolist(),
+                "raw_scores": model.decision_function(X[test]).tolist(),
+                "accuracy": float(exact_accuracy), "early_stopping_used": False})
+        exact_score = sum(exact_scores, Fraction(0)) / len(exact_scores)
+        records.append({"candidate_index": index, "parameters": parameters,
+                        "folds": folds, "mean_inner_accuracy": float(exact_score)})
+        if best_exact_score is None or exact_score > best_exact_score:
+            best_index, best_exact_score = index, exact_score
+    chosen = {**candidates[best_index], "random_state": lightgbm_seed(master, context, "refit")}
+    final = HandcraftedLightGBMClassifier(**lightgbm_constructor_parameters(chosen)).fit(X, y)
+    audit = {"algorithm_version": ALGORITHM_VERSION, "context": dict(context),
+             "search_policy": policy, "candidates": records, "best_candidate_index": best_index,
+             "best_score": float(best_exact_score), "best_params": chosen,
+             "training_feature_importances": final.feature_importances_.tolist(),
+             "feature_importance_scope": "training_newton_gain_not_causal_or_test_permutation_importance",
+             "model": final.to_dict()}
+    return LightGBMSearchResult(final, chosen, float(best_exact_score), audit)
