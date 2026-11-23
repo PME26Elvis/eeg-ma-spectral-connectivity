@@ -186,8 +186,13 @@ def _verify_sfs(identity, frame, split, train_ids, selected_names, inner_splits,
     if accepted != expected["candidate_name"].isin(set(selected_names)).tolist():
         raise StrictReplayError("Archived SFS acceptance was not reproduced")
     for key in ("cv_accuracy", "improvement"):
-        got = pd.to_numeric(observed[key], errors="coerce").to_numpy(float)
-        wanted = pd.to_numeric(expected[key], errors="coerce").to_numpy(float)
+        # Never turn arbitrary non-numeric strings into NaN: the first
+        # SFS improvement is legitimately null and must not conceal tampering.
+        try:
+            got = pd.to_numeric(observed[key], errors="raise").to_numpy(float)
+            wanted = pd.to_numeric(expected[key], errors="raise").to_numpy(float)
+        except (TypeError, ValueError) as exc:
+            raise StrictReplayError(f"Archived SFS {key} contains a nonnumeric value") from exc
         if not np.allclose(got, wanted, rtol=REL_TOL, atol=ABS_TOL, equal_nan=True):
             raise StrictReplayError(f"Archived SFS {key} was not reproduced from training data")
     folds = read_csv_literal(folder / f"{scope}_folds.csv")
