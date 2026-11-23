@@ -334,7 +334,7 @@ class CARTTree:
         return result
 
 
-def _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini):
+def _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini, labels=None):
     """One sorted scan with O(n) scratch, including all valid boundary gains."""
     values = X[indices, feature]
     order = np.argsort(values, kind="stable")
@@ -347,7 +347,7 @@ def _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini):
     left_mass = np.cumsum(sorted_w)[:-1]
     right_mass = np.cumsum(sorted_w[::-1])[::-1][1:]
     left_gini, right_gini = np.ones(len(indices) - 1), np.ones(len(indices) - 1)
-    for label in np.unique(sorted_y):
+    for label in (np.unique(sorted_y) if labels is None else labels):
         class_w = np.where(sorted_y == label, sorted_w, 0.0)
         left_gini -= (np.cumsum(class_w)[:-1] / left_mass) ** 2
         right_gini -= (np.cumsum(class_w[::-1])[::-1][1:] / right_mass) ** 2
@@ -365,12 +365,22 @@ def _best_split(X, y, weights, indices, feature_rng, feature_limit, min_leaf, pa
     then rescan only the selected feature using the *global* cutoff; otherwise
     local boundary ties and feature ties can accidentally spend tolerance twice.
     """
+    # One node has one class set. Reuse it for all sampled features instead
+    # of sorting the same labels once per candidate. Retain only the
+    # highest-maximum candidate's scan to avoid sorting it a second time.
+    # Final feature/boundary selection still uses the *original* global
+    # tolerance cutoff, never a local or chained approximate tie.
+    labels = np.unique(y[indices])
     maxima = []
+    cached_feature, cached_scan, highest = None, None, -np.inf
     for inspected, feature in enumerate(feature_rng.permutation(X.shape[1]), start=1):
-        scanned = _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini)
+        scanned = _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini, labels)
         if scanned is not None:
             _, _, valid, gains = scanned
-            maxima.append((int(feature), float(np.max(gains[valid]))))
+            maximum = float(np.max(gains[valid]))
+            maxima.append((int(feature), maximum))
+            if maximum > highest:
+                highest, cached_feature, cached_scan = maximum, int(feature), scanned
         # Constant/leaf-infeasible sampled features cannot force a dead end:
         # extend the permutation only until an admissible split has been seen.
         if inspected >= feature_limit and maxima:
@@ -379,7 +389,13 @@ def _best_split(X, y, weights, indices, feature_rng, feature_limit, min_leaf, pa
         return None
     cutoff = max(gain for _, gain in maxima) - _TOL
     feature = min(feature for feature, maximum in maxima if maximum >= cutoff)
-    order, sorted_values, valid, gains = _feature_gains(X, y, weights, indices, feature, min_leaf, parent_gini)
+    # A lower-index feature may win the global tie even though it does not
+    # attain the largest raw gain; in that rare case perform the original
+    # second scan. Common strict winners skip that redundant sort/scan.
+    scanned = (cached_scan if feature == cached_feature else
+               _feature_gains(X, y, weights, indices, feature,
+                              min_leaf, parent_gini, labels))
+    order, sorted_values, valid, gains = scanned
     boundary = int(np.flatnonzero(valid & (gains >= cutoff))[0])
     gain = float(gains[boundary])
     if gain < -_TOL:
