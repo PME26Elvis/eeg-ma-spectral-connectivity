@@ -219,3 +219,26 @@ def test_benchmark_cannot_write_to_canonical_research_trees():
                         root / "results/perf"):
         with pytest.raises(ProvenanceError):
             module.safe_benchmark_path(destination)
+
+
+
+def test_benchmark_refuses_profiler_contaminated_comparison(tmp_path):
+    from argparse import Namespace
+    from importlib.util import spec_from_file_location, module_from_spec
+    root = Path(__file__).resolve().parents[1]
+    spec = spec_from_file_location("comparison_proof", root / "benchmarks" / "run.py")
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    before, after = tmp_path / "before", tmp_path / "after"
+    before.mkdir()
+    after.mkdir()
+    report = {"schema_version": module.SCHEMA,
+              "host": module.machine(), "preset": "ci",
+              "profiling_excluded_from_measured_repeats": False,
+              "cases": []}
+    for folder in (before, after):
+        (folder / "summary.json").write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="Profiler-contaminated"):
+        module.compare(Namespace(baseline=str(before), candidate=str(after),
+                                 output=str(tmp_path / "comparison.json")))
+    assert not (tmp_path / "comparison.json").exists()
