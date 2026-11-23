@@ -7,7 +7,7 @@
 | 檢查 | 實際 coverage | 不涵蓋的內容 |
 | --- | --- | --- |
 | Fast source-bound audit | 完整 run inventory、input/schema、LOPO train/test、RF bootstrap/OOB/節點統計、LightGBM bins/GOSS/EFB/G/H、outer predictions，及 inner records 自洽性 | 不是所有 inner candidate 的重新訓練或獨立的每一分裂最優性證明 |
-| **strict_train_replay** | 在原 commit／source fingerprint、實際核實的 CPython 3.12.14 hash-locked reference environment 下，**重訓所有候選 × inner folds 與 final refits**，核對新舊模型 JSON、所有 inner validation 機率、原始分數、種子、最佳候選、外層預測及重要度；共同 S 軌會重算 training-only LDA-SFS，F 軌核對完整特徵 | 是同一套原演算法的再次執行，不是全新演算法的獨立證明 |
+| **strict_train_replay** | 在原 commit／source fingerprint、實際核實的 CPython 3.12.14 hash-locked reference environment 下，**重訓所有候選 × inner folds 與 final refits**，核對新舊模型 JSON、所有 inner validation 機率、原始分數、種子、最佳候選、外層預測及重要度；共同 S 軌會重算 training-only LDA-SFS **完整候選路徑／每步內層 CV 分數／改善量及每折最終分數**，F 軌核對完整特徵 | 是同一套原演算法的再次執行，不是全新演算法的獨立證明 |
 | **Independent tiny exhaustive oracle** | 另一個數學實作，tiny CART 採 Fraction 精確 Gini 枚舉所有 feature/boundary/節點；tiny booster 採直接逐列導數／Newton objective、所有合法 bin 分割／全域 leaf-wise 候選枚舉，覆蓋 L1/L2、步長截斷、GOSS 與 EFB 小型輸入 | 只保證指定小型 fixture，不聲稱大型模型所有節點已完成數學證明。GOSS sampled indices、feature masks、bin mapping 仍依 fast source audit＋strict refit 核對 |
 
 ## 2. CLI
@@ -37,7 +37,7 @@ python scripts/26_strict_verify.py oracles \
 
 成本為所有 outer folds × 所有 candidate × inner folds 再加每折每模型一次 final refit；估算節點是保守上界而非真實時間或記憶體。max_seconds 是**模型批次之間檢查的 soft timeout**，無法保證單次長 fit 即時終止；GitHub Actions 另設 step/job hard timeout，且保留中止診斷。
 
-報告 strict_report.json 記錄原始 run manifest SHA-256、run ID、code commit/工作檔 checksum、reference environment/lock ID、每個 scope／fold／模型的候選與 fit 次數、原模型與重訓 JSON fingerprint、固定 numeric tolerance：rtol=2e-12、atol=2e-14。只成功發布於指定的全新獨立 output directory，**原 complete run 不會被改寫**。
+報告 strict_report.json 記錄原始 run manifest SHA-256、run ID、code commit/工作檔 checksum、reference environment/lock ID、每個 scope／fold／模型的候選與 fit 次數、原模型與重訓 JSON fingerprint、固定 numeric tolerance：rtol=2e-12、atol=2e-14。只成功發布於指定的全新獨立 output directory；執行開始即拒絕覆寫既存 report，且在全部重訓後、最終發布前**再次核對 run manifest、每份 source artifact 與工作程式身分**，避免長時間驗證期間來源被變更。**原 complete run 不會被改寫**。
 
 ## 3. 新增的自動化驗證
 

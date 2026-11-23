@@ -25,8 +25,8 @@ from .extract import feature_columns
 from .environment import verify_reference_environment
 from .models import fit_lightgbm, fit_random_forest
 from .provenance import (
-    ProvenanceError, canonical_json, code_identity, fingerprint, read_csv_literal,
-    sha256_file, validate_complete_run,
+    ProvenanceError, canonical_json, code_identity, fingerprint, protect_output,
+    read_csv_literal, sha256_file, validate_complete_run,
 )
 from .sfs import forward_select_lda
 
@@ -146,7 +146,7 @@ def _preflight(identity, folder, budget):
             }}
 
 
-def _verify_sfs(identity, frame, split, train_ids, selected_names, inner_splits, folds, scope):
+def _verify_sfs(identity, frame, split, train_ids, selected_names, inner_splits, folder, scope):
     fcols = feature_columns(frame, str(identity["config"].get("feature_set", "all")))
     mode = classifier_policy(identity["config"])["feature_selection"]
     if mode == "all_declared_features":
@@ -163,6 +163,43 @@ def _verify_sfs(identity, frame, split, train_ids, selected_names, inner_splits,
     )
     if sfs.selected_names != selected_names:
         raise StrictReplayError("Fresh training-only SFS selected a different feature subset")
+    # Fast validation checks path structure, not whether inner LDA scores
+    # were numerically produced by this particular outer-training fold.
+    archive = read_csv_literal(folder / f"{scope}_sfs_path.csv")
+    unit = "subject_id" if scope == "intra" else "held_out_subject"
+    required = {unit, "comparison", "outer_fold", "step", "candidate_index",
+                "candidate_name", "cv_accuracy", "improvement", "accepted"}
+    if not required.issubset(archive.columns):
+        raise StrictReplayError("Archived SFS trace lacks required fields")
+    observed = archive.loc[
+        archive[unit].astype(str).eq(str(split[unit]))
+        & archive["comparison"].astype(str).eq(str(split["comparison"]))
+        & archive["outer_fold"].eq(split["outer_fold"])
+    ].sort_values("step").reset_index(drop=True)
+    expected = sfs.path.sort_values("step").reset_index(drop=True)
+    if len(observed) != len(expected) or not len(expected):
+        raise StrictReplayError("Archived SFS candidate path coverage differs")
+    for key in ("step", "candidate_index", "candidate_name"):
+        if observed[key].tolist() != expected[key].tolist():
+            raise StrictReplayError(f"Archived SFS {key} differs from actual training")
+    accepted = observed["accepted"].astype(str).str.lower().map({"true": True, "false": False}).tolist()
+    if accepted != expected["candidate_name"].isin(set(selected_names)).tolist():
+        raise StrictReplayError("Archived SFS acceptance was not reproduced")
+    for key in ("cv_accuracy", "improvement"):
+        got = pd.to_numeric(observed[key], errors="coerce").to_numpy(float)
+        wanted = pd.to_numeric(expected[key], errors="coerce").to_numpy(float)
+        if not np.allclose(got, wanted, rtol=REL_TOL, atol=ABS_TOL, equal_nan=True):
+            raise StrictReplayError(f"Archived SFS {key} was not reproduced from training data")
+    folds = read_csv_literal(folder / f"{scope}_folds.csv")
+    matching = folds.loc[
+        folds[unit].astype(str).eq(str(split[unit]))
+        & folds["comparison"].astype(str).eq(str(split["comparison"]))
+        & folds["outer_fold"].eq(split["outer_fold"])
+    ]
+    if (matching.empty or not np.allclose(
+            pd.to_numeric(matching["sfs_inner_accuracy"], errors="coerce").to_numpy(float),
+            sfs.best_score, rtol=REL_TOL, atol=ABS_TOL)):
+        raise StrictReplayError("Archived SFS best score differs from true training-only CV")
     return {"feature_policy": mode, "retrained_selection": True,
             "n_features": len(selected_names), "selected_features": selected_names}
 
@@ -218,7 +255,7 @@ def _replay_scope(root: Path, identity: dict, scope: str, budget: ReplayBudget, 
             Xtest = indexed.loc[test_ids, names].to_numpy(float)
             context = {"scope": scope, "comparison": split["comparison"],
                        "subject": split[unit], "outer_fold": split["outer_fold"]}
-            _verify_sfs(identity, data, split, train_ids, names, inner, record, scope)
+            _verify_sfs(identity, data, split, train_ids, names, inner, folder, scope)
             groups = (indexed.loc[train_ids, "subject_id"].astype(str).to_numpy()
                       if scope == "inter" else None)
             if name == "RandomForest":
@@ -268,10 +305,15 @@ def verify_strict_run(path: str | Path, *, budget: ReplayBudget | None = None,
     begin = time.monotonic()
     manifest = validate_complete_run(root)
     identity = manifest["identity"]
+    original_manifest_sha = sha256_file(root / "run_manifest.json")
     plan = _preflight(identity, root, budget)
     if preflight_only:
         return {"status": "not_run_preflight_only", "schema_version": SCHEMA, "plan": plan,
                 "run_id": manifest["run_id"]}
+    if report_dir is not None:
+        target = protect_output(report_dir)
+        if target.exists():
+            raise StrictReplayError("Verified report destination already exists; refuse before refitting")
     current_code = code_identity()
     if canonical_json(identity.get("code")) != canonical_json(current_code):
         raise StrictReplayError("Strict verification needs exactly the run's original checkout and code identity")
@@ -284,9 +326,16 @@ def verify_strict_run(path: str | Path, *, budget: ReplayBudget | None = None,
     checked_fits = sum(result["model_fits_replayed"] for result in results)
     if checked_fits != plan["complete_model_fits"]:
         raise StrictReplayError("Strict replay did not fit all declared inner candidates and outer models")
+    # An input or program may change while the expensive verification runs.
+    validate_complete_run(root, identity)
+    if sha256_file(root / "run_manifest.json") != original_manifest_sha:
+        raise StrictReplayError("Original run manifest changed during replay")
+    if canonical_json(code_identity()) != canonical_json(current_code):
+        raise StrictReplayError("Analysis checkout or source code changed during replay")
+    verify_reference_environment(identity.get("environment"))
     response = {
         "schema_version": SCHEMA, "status": "verified_strict_train_replay",
-        "run_id": manifest["run_id"], "source_manifest_sha256": sha256_file(root / "run_manifest.json"),
+        "run_id": manifest["run_id"], "source_manifest_sha256": original_manifest_sha,
         "reference_environment_id": reference["environment_id"], "reference_lock_id": reference["lock_id"],
         "code_commit": current_code["commit"], "code_source_sha256": current_code["working_source_sha256"],
         "time_seconds": time.monotonic() - begin, "preflight": plan,
@@ -299,4 +348,8 @@ def verify_strict_run(path: str | Path, *, budget: ReplayBudget | None = None,
         with new_output_directory(report_dir) as temporary:
             from .provenance import _write_json
             _write_json(temporary / "strict_report.json", response)
+            validate_complete_run(root, identity)
+            if (sha256_file(root / "run_manifest.json") != original_manifest_sha
+                    or canonical_json(code_identity()) != canonical_json(current_code)):
+                raise StrictReplayError("Input run or analysis source changed before strict report publication")
     return response

@@ -110,11 +110,44 @@ def run(source_root, target):
     ], code=2)
     if failure["status"] != "failed_integrity_or_environment" or (target / "no_false_positive").exists():
         raise RuntimeError("Strict verification accepted a changed inner model probability")
+    # A second fast-valid attack changes a training-only SFS CV score while
+    # preserving selected features, path structure, and all outer predictions.
+    attacked_sfs = target / "modified_sfs_fast_valid_strict_invalid"
+    shutil.copytree(source_root / "S", attacked_sfs)
+    trace = attacked_sfs / "inter_sfs_path.csv"
+    from eeg_ma.provenance import read_csv_literal
+    trace_table = read_csv_literal(trace)
+    original = float(trace_table.loc[0, "cv_accuracy"])
+    trace_table.loc[0, "cv_accuracy"] = .222 if abs(original - .222) > .001 else .888
+    trace_table.to_csv(trace, index=False)
+    manifest_file = attacked_sfs / "run_manifest.json"
+    rehashed = json.loads(manifest_file.read_text(encoding="utf-8"))
+    rehashed["artifacts"]["inter_sfs_path.csv"]["sha256"] = sha256_file(trace)
+    rehashed["artifacts"]["inter_sfs_path.csv"]["bytes"] = trace.stat().st_size
+    manifest_file.write_text(json.dumps(rehashed, ensure_ascii=False, sort_keys=True, indent=2)
+                             + "\n", encoding="utf-8")
+    validate_complete_run(attacked_sfs)
+    wrong_sfs = execute("tampered_sfs_cv_accuracy", [
+        "verify", "--run", attacked_sfs, "--out-dir", target / "no_false_sfs",
+        "--max-model-fits", "64",
+    ], code=2)
+    if wrong_sfs["status"] != "failed_integrity_or_environment" or (target / "no_false_sfs").exists():
+        raise RuntimeError("Strict verification accepted a fabricated LDA-SFS CV score")
+    # Reject an existing verification output before repeating expensive fits.
+    existing_hashes = inventory(target / "S_strict")
+    existing = execute("existing_strict_report_refusal", [
+        "verify", "--run", source_root / "S",
+        "--out-dir", target / "S_strict", "--max-model-fits", "64"
+    ], code=2)
+    if existing["status"] != "failed_integrity_or_environment" or inventory(target / "S_strict") != existing_hashes:
+        raise RuntimeError("Strict verification overwrote an existing complete report")
     for track in ("S", "F"):
         if inventory(source_root / track) != original_hashes[track]:
             raise RuntimeError("Strict replay mutated a completed source run")
     report["status"] = "passed"
     report["tampered_inner_probabilities_rehashed"] = "fast_passed_strict_rejected"
+    report["tampered_sfs_cv_scores_rehashed"] = "fast_passed_strict_rejected"
+    report["existing_strict_report_unchanged"] = True
     (target / "smoke_report.json").write_text(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
