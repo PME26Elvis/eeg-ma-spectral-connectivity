@@ -34,6 +34,9 @@ def test_structural_cost_and_grouped_inner_fit_counts(fixture):
     assert plan["full_tree_model_fits"] == 30
     assert plan["dataset"]["participants"] == 3
     assert plan["tree_work_units"] > 0
+    assert plan["projected_nodes_upper"] > plan["peak_model_nodes_upper"]
+    assert plan["retained_outer_model_nodes_upper"] > 0
+    assert set(plan["other_classifier_model_fits"]) == {"LDA", "RBF-SVM", "KFDA"}
     assert plan["sfs_inner_model_fits_upper"] > 0
     assert plan["estimated_seconds"] is None
     assert "not_hard" in plan["memory_scope"]
