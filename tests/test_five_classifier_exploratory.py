@@ -34,17 +34,17 @@ def test_complete_two_tracks_with_participant_macro(synthetic_report):
     root, _, _, _, _, frame, info = synthetic_report
     assert info["status"] == "verified"
     assert info["scope"] == "synthetic_only"
-    assert info["n_groups"] == 14 and info["n_participants"] == 3
+    assert info["n_groups"] == 7 and info["n_participants"] == 3
     assert info["n_predictions"] == len(frame) * 7 == 336
     participants = read_csv_literal(root / "participant_results.csv")
-    assert len(participants) == 14 * 3
+    assert len(participants) == 7 * 3
     summary = read_csv_literal(root / "summary.csv")
     assert set(summary.classifier) == {"LDA", "RBF-SVM", "KFDA", "RandomForest", "LightGBM"}
     assert set(summary.n_subjects) == {3}
     assert set(summary.n_ba_eligible) == {3}
-    assert set(summary.n_epochs) == {len(frame) // 2}
+    assert set(summary.n_epochs) == {len(frame)}
     pairs = read_csv_literal(root / "paired_participants.csv")
-    assert len(pairs) == 2 * 4 * 3
+    assert len(pairs) == 1 * 4 * 3
     assert set(pairs.subject_id) == set(frame.subject_id)
     assert "no new hypothesis is chosen" in (root / "report.md").read_text().lower()
 

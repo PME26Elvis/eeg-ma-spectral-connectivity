@@ -48,13 +48,13 @@ def run(out_dir):
                    for p in output.rglob("*") if p.is_file()}:
         raise RuntimeError("Refusing overwrite changed the published report")
     verified = validate_exploratory_report(output)
-    if verified["n_participants"] != 3 or verified["n_groups"] != 14 or verified["n_predictions"] != 336:
+    if verified["n_participants"] != 3 or verified["n_groups"] != 7 or verified["n_predictions"] != 336:
         raise RuntimeError(f"Wrong complete cohort/classifier matrix: {verified}")
     for track, count in (("S", 5), ("F", 2)):
         manifest = validate_complete_run(output / track)
         folds = read_csv_literal(output / track / "inter_folds.csv")
         paths = read_csv_literal(output / track / "inter_sfs_path.csv")
-        if len(folds) != 3 * 2 * count:
+        if len(folds) != 3 * count:
             raise RuntimeError(f"{track} fold matrix incomplete")
         if track == "F":
             if not paths.cv_accuracy.isna().all() or set(paths.selection_method) != {"all_declared_features"}:
