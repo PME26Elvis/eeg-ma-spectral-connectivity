@@ -199,6 +199,8 @@ def suite(args):
     inputs.mkdir(parents=True, exist_ok=True)
     observed = []
     for rows, features, kind in PRESETS[args.preset]:
+        if args.rows_only is not None and rows != args.rows_only:
+            continue
         name = f"r{rows}-f{features}-{kind}"
         source = inputs / f"{name}.npz"
         if not source.is_file():
@@ -235,6 +237,8 @@ def suite(args):
                         observed.append(result)
                     else:
                         output.unlink()
+    if not observed:
+        raise ValueError("Empty benchmark matrix after workload filters")
     grouped = {}
     for row in observed:
         key = f"{row['rows']}x{row['features']}/{row['kind']}/{row['model']}/j{row['jobs']}"
@@ -343,6 +347,7 @@ def main():
     run.add_argument("--repeats", type=int, default=3)
     run.add_argument("--warmups", type=int, default=1)
     run.add_argument("--timeout", type=float, default=180)
+    run.add_argument("--rows-only", type=int, choices=[300, 600, 3000, 6000])
     run.add_argument("--profile", action="store_true")
     comp = sub.add_parser("compare")
     comp.add_argument("--baseline", required=True)
