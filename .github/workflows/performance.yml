@@ -74,3 +74,42 @@ jobs:
           path: outputs/bench/
           if-no-files-found: warn
           retention-days: 90
+
+  large-workloads:
+    name: Candidate 3000/6000-row jobs=1,2,4 (3 measured repeats)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12.14'
+          cache: pip
+          cache-dependency-path: environment/reference-linux-x86_64-py312.lock
+      - name: Install exact reference wheels
+        run: |
+          mkdir -p outputs/large
+          python -m venv .venv-reference
+          .venv-reference/bin/python -m pip install --force-reinstall --no-deps --require-hashes --only-binary=:all: --report outputs/large/install.json -r environment/reference-linux-x86_64-py312.lock
+          .venv-reference/bin/python -m pip install --no-deps --no-build-isolation -e .
+          .venv-reference/bin/python -m pip check
+      - name: Pin actual runtime identity
+        run: |
+          EEG_MA_INSTALL_REPORT="$PWD/outputs/large/install.json" .venv-reference/bin/python scripts/18_environment.py verify --out outputs/large/environment.json
+      - name: Measure bounded 3000- and 6000-row synthetic workload
+        timeout-minutes: 60
+        run: |
+          .venv-reference/bin/python benchmarks/run.py suite --preset full \
+            --case-only r3000-f168-correlated r6000-f312-sparse \
+            --jobs 1 2 4 --repeats 3 --warmups 1 --timeout 300 --profile \
+            --out-dir outputs/large/measurement
+      - name: Retain synthetic large-workload measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perf-large-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/large/
+          if-no-files-found: warn
+          retention-days: 90
