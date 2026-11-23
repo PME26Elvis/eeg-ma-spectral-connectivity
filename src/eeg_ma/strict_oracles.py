@@ -261,6 +261,10 @@ def verify_booster_exhaustive_tiny(model, X, y, *, max_rows=24,
             # Children only become candidates on the next iteration.
         if len(groups) != tree.node_count:
             raise OracleMismatch("Booster contains more nodes than exhaustive growth")
+        if len(groups) < 2 * params["num_leaves"] - 1:
+            still_possible = any(candidate is not None for candidate in pending.values())
+            if still_possible:
+                raise OracleMismatch("Booster stopped before a feasible global leaf-wise split")
         for node, group in groups.items():
             if int(tree.n_node_samples_[node]) != len(group):
                 raise OracleMismatch("Booster node count differs")
@@ -276,4 +280,61 @@ def verify_booster_exhaustive_tiny(model, X, y, *, max_rows=24,
         "nodes_checked": checked_nodes, "split_nodes_checked": checked_splits,
         "rounds_checked": len(model.estimators_),
         "sampling_and_masks": "source_bound_fast_audit_plus_complete_model_refit",
+    }
+
+
+def run_tiny_oracle_canary():
+    """Execute bounded independent checks; returns coverage, never EEG accuracy."""
+    from .random_forest import HandcraftedRandomForestClassifier
+    from .lightgbm import HandcraftedLightGBMClassifier
+
+    cases = []
+    datasets = [
+        ("xor_zero_gain", np.array([[0, 0], [0, 1], [1, 0], [1, 1]] * 2, dtype=float),
+         np.array([0, 1, 1, 0] * 2, dtype=int), None),
+        ("imbalanced_weighted", np.array([[i, i % 3] for i in range(10)], dtype=float),
+         np.array([0, 0, 0, 0, 0, 0, 1, 0, 1, 1]), [1, 2, 1, 1, 3, 1, 2, 1, 1, 2]),
+        ("constant_features", np.zeros((8, 2), dtype=float),
+         np.array([0, 0, 1, 0, 1, 1, 0, 1]), None),
+    ]
+    for name, X, y, weights in datasets:
+        model = HandcraftedRandomForestClassifier(
+            n_estimators=1, bootstrap=False, max_features=None,
+            max_depth=4, random_state=709, min_samples_leaf=1,
+        ).fit(X, y, sample_weight=weights)
+        check = verify_cart_exhaustive_tiny(model, X, y, sample_weight=weights)
+        cases.append({"name": name, "algorithm": "handcrafted_CART",
+                      "proof": check})
+    X = np.array([
+        [0, 0, 1], [0, 2, 0], [1, 0, 0], [2, 0, 1],
+        [0, 1, 2], [1, 2, 0], [2, 1, 2], [1, 1, 1],
+        [0, 0, 0], [2, 2, 0], [1, 0, 2], [0, 2, 2],
+    ], dtype=float)
+    y = np.array([0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 0], dtype=int)
+    for name, kwargs in [
+        ("bagging_regularized", {"lambda_l1": 0, "lambda_l2": 1.0}),
+        ("bounded_newton_l1", {"lambda_l1": .05, "lambda_l2": .1, "max_delta_step": .3}),
+        ("goss_efb", {"data_sample_strategy": "goss", "top_rate": .4,
+                       "other_rate": .4, "enable_bundle": True}),
+    ]:
+        params = {
+            "n_estimators": 3, "num_leaves": 3, "max_depth": 3,
+            "max_bin": 7, "min_data_in_leaf": 1,
+            "learning_rate": .1, "random_state": 119, **kwargs,
+        }
+        model = HandcraftedLightGBMClassifier(**params).fit(X, y)
+        check = verify_booster_exhaustive_tiny(model, X, y, max_rows=24,
+                                               max_features=5, max_nodes=64)
+        cases.append({"name": name, "algorithm": "handcrafted_histogram_Newton",
+                      "proof": check})
+    return {
+        "schema_version": "eeg-independent-tiny-oracles-1",
+        "status": "verified_independent_tiny_oracles",
+        "n_fixtures": len(cases),
+        "coverage": cases,
+        "limitations": [
+            "tiny_exhaustive_math_not_a_proof_of_all_real_model_nodes",
+            "oracle_uses_source_checked_sample_indices_and_feature_masks",
+            "training_bins_are_fitted_by_the_model_and_replayed_by_the_fast_source_audit",
+        ],
     }
