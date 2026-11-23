@@ -5,6 +5,7 @@ calibration is mandatory before enforcing any estimated runtime budget.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -136,6 +137,14 @@ def plan_evaluation_cost(features, config, *, scope, calibration=None,
     fold_mib = 8 * max_rows * len(cols) / 2**20
     # Empirical headroom assumption; neither hard memory cap nor OS peak RSS.
     memory_mib = math.ceil(12 * (input_mib + fold_mib) + 256 * nodes_upper / 2**20 + 128)
+    from .config import gamma_grid
+    inner_folds = sum(len(split["inner_splits"]) for split in splits)
+    grid = len(config["rbf_grid"]["C"]) * len(gamma_grid(config))
+    other_fits = {
+        "LDA": len(splits) if "LDA" in policy["classifiers"] else 0,
+        "RBF-SVM": (inner_folds * grid + len(splits)) if "RBF-SVM" in policy["classifiers"] else 0,
+        "KFDA": (inner_folds * grid + len(splits)) if "KFDA" in policy["classifiers"] else 0,
+    }
     report = {
         "schema_version": PLAN_VERSION, "scope": scope,
         "dataset": {"n_rows": len(features), "participants": int(features.subject_id.nunique()),
@@ -143,6 +152,7 @@ def plan_evaluation_cost(features, config, *, scope, calibration=None,
                     "feature_order_sha256": fingerprint(cols)},
         "policy_sha256": fingerprint(policy), "outer_folds": len(splits),
         "full_tree_model_fits": full_tree_fits, "sfs_inner_model_fits_upper": sfs_fits,
+        "other_classifier_model_fits": other_fits,
         "tree_work_units": units, "projected_nodes_upper": nodes_upper,
         "estimated_memory_mib": memory_mib,
         "memory_scope": "heuristic_planning_envelope_not_hard_process_RSS_limit",
@@ -160,9 +170,37 @@ def plan_evaluation_cost(features, config, *, scope, calibration=None,
                 or saved["seconds_per_unit"] <= 0
                 or type(saved.get("measurements")) is not int
                 or saved["measurements"] < 3
+                or not isinstance(saved.get("measurements_sha256"), str)
+                or not isinstance(saved.get("learner_sha256"), dict)
+                or set(saved["learner_sha256"]) != {"RandomForest", "LightGBM"}
                 or type(saved.get("safety_factor")) not in (int, float)
                 or not 1 <= saved["safety_factor"] <= 10):
             raise CostPlanError("Runtime calibration missing, invalid or from another machine/environment")
+        observations = Path(calibration).with_name("measurements.jsonl")
+        if not observations.is_file():
+            raise CostPlanError("Calibration needs original measured observations")
+        raw = observations.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != saved["measurements_sha256"]:
+            raise CostPlanError("Measured calibration observation bytes changed")
+        try:
+            rows = [json.loads(line) for line in raw.decode("utf-8").splitlines()]
+            measured_ratio = max(row["fit_wall_s"] / row["units"] for row in rows)
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+            raise CostPlanError("Calibration observations are invalid") from exc
+        if (len(rows) != saved["measurements"]
+                or any(row.get("host") != report["cpu_environment"]
+                       or row.get("model") not in ("RandomForest", "LightGBM")
+                       or type(row.get("fit_wall_s")) not in (int, float)
+                       or row["fit_wall_s"] <= 0 or row["units"] <= 0 for row in rows)
+                or not math.isclose(measured_ratio, saved["seconds_per_unit"], rel_tol=1e-12)):
+            raise CostPlanError("Calibration observations do not reproduce the recorded work rate")
+        from . import random_forest, lightgbm
+        current = {
+            "RandomForest": hashlib.sha256(Path(random_forest.__file__).read_bytes()).hexdigest(),
+            "LightGBM": hashlib.sha256(Path(lightgbm.__file__).read_bytes()).hexdigest(),
+        }
+        if current != saved["learner_sha256"]:
+            raise CostPlanError("Calibration is from different model implementation bytes")
         report["calibration"] = saved
         report["estimated_seconds"] = math.ceil(units * saved["seconds_per_unit"]
                                                  * saved["safety_factor"])
@@ -175,6 +213,10 @@ def plan_evaluation_cost(features, config, *, scope, calibration=None,
         limit = _positive(max_estimated_seconds, "max_estimated_seconds")
         if report["estimated_seconds"] is None:
             raise CostLimitExceeded("Time budget needs measured same-host calibration; refusing uncalibrated execution")
+        if sfs_fits or any(other_fits.values()):
+            raise CostLimitExceeded(
+                "Tree-only calibration excludes SFS/SVM/KFDA runtime; rejecting unsafe whole-run budget"
+            )
         if report["estimated_seconds"] > limit:
             raise CostLimitExceeded(f"estimated runtime {report['estimated_seconds']} s exceeds {limit:g} s")
     return report
