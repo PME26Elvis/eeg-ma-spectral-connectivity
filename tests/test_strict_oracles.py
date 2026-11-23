@@ -21,7 +21,7 @@ from eeg_ma.strict_replay import (
 def test_independent_bounded_oracle_canary():
     result = run_tiny_oracle_canary()
     assert result["status"] == "verified_independent_tiny_oracles"
-    assert result["n_fixtures"] == 6
+    assert result["n_fixtures"] == 7
     assert set(record["algorithm"] for record in result["coverage"]) == {
         "handcrafted_CART", "handcrafted_histogram_Newton"
     }
