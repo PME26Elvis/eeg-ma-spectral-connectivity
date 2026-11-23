@@ -1,0 +1,74 @@
+name: Full handwritten-tree performance matrix
+
+'on':
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'Thread counts (space separated, subset of 1 2 4)'
+        default: '1 2 4'
+        required: true
+        type: choice
+        options: ['1', '1 2', '1 2 4']
+      max_case_seconds:
+        description: 'Independent bounded timeout for a single fit/repeat'
+        required: true
+        default: '240'
+        type: choice
+        options: ['120','240','600']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  OMP_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  NUMEXPR_NUM_THREADS: '1'
+  PYTHONHASHSEED: '0'
+  MPLBACKEND: Agg
+  JOBS: ${{ inputs.jobs }}
+  MAX_CASE_SECONDS: ${{ inputs.max_case_seconds }}
+
+jobs:
+  benchmark:
+    name: Linux x86_64 / ${{ matrix.rows }} rows / 3 measured repeats
+    strategy:
+      fail-fast: false
+      matrix:
+        rows: [300, 600, 3000, 6000]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12.14'
+          cache: pip
+          cache-dependency-path: environment/reference-linux-x86_64-py312.lock
+      - name: Install exact hash-locked research environment
+        run: |
+          mkdir -p outputs/performance
+          python -m venv .venv-reference
+          .venv-reference/bin/python -m pip install --force-reinstall --no-deps --require-hashes --only-binary=:all: --report outputs/performance/install.json -r environment/reference-linux-x86_64-py312.lock
+          .venv-reference/bin/python -m pip install --no-deps --no-build-isolation -e .
+          .venv-reference/bin/python -m pip check
+      - name: Verify interpreter and dependencies
+        run: |
+          EEG_MA_INSTALL_REPORT="$PWD/outputs/performance/install.json" EEG_MA_REFERENCE_SPEC="$PWD/environment/reference.json" .venv-reference/bin/python scripts/18_environment.py verify --out outputs/performance/environment.json
+      - name: Profile the bounded synthetic workloads
+        run: |
+          .venv-reference/bin/python benchmarks/run.py suite --preset full --rows-only "${{ matrix.rows }}" --jobs $JOBS --repeats 3 --warmups 1 --timeout "$MAX_CASE_SECONDS" --profile --out-dir "outputs/performance/full-${{ matrix.rows }}"
+      - name: Preserve report, inputs, measured samples and profiler output
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perf-full-${{ matrix.rows }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/performance/
+          if-no-files-found: warn
+          retention-days: 90
